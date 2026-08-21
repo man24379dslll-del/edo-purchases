@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 
 /**
- * Поиск существующего договора по номеру/предмету/контрагенту — для формы
- * добавления доп. соглашения/приложения к уже созданному договору.
+ * Выбор существующего договора — для формы добавления доп. соглашения/приложения.
+ * При клике сразу показывает список последних договоров (без необходимости печатать),
+ * при вводе текста — фильтрует по номеру/предмету/контрагенту.
  */
 export default function ContractAutocomplete({ value, onSelect }) {
   const [query, setQuery] = useState(value?.subject ? `${value.id} · ${value.subject}` : "");
   const [results, setResults] = useState([]);
   const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
   const boxRef = useRef(null);
   const debounceRef = useRef(null);
 
@@ -20,18 +22,30 @@ export default function ContractAutocomplete({ value, onSelect }) {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
+  async function search(q) {
+    setLoading(true);
+    try {
+      const rows = await api.contracts(q ? { q } : {});
+      setResults(rows.slice(0, 20));
+      setOpen(true);
+    } catch (_) {
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function handleInput(v) {
     setQuery(v);
     onSelect(null);
     clearTimeout(debounceRef.current);
-    if (v.trim().length < 2) { setResults([]); return; }
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const rows = await api.contracts({ q: v.trim() });
-        setResults(rows.slice(0, 15));
-        setOpen(true);
-      } catch (_) {}
-    }, 250);
+    debounceRef.current = setTimeout(() => search(v.trim()), 250);
+  }
+
+  function handleFocus() {
+    // Клик по пустому полю сразу показывает список последних договоров —
+    // не нужно ничего печатать, чтобы увидеть, из чего выбирать.
+    if (!query.trim()) search("");
+    else if (results.length) setOpen(true);
   }
 
   function select(c) {
@@ -45,17 +59,21 @@ export default function ContractAutocomplete({ value, onSelect }) {
       <input
         value={query}
         onChange={(e) => handleInput(e.target.value)}
-        onFocus={() => results.length && setOpen(true)}
-        placeholder="Начните вводить номер, контрагента или предмет договора..."
+        onFocus={handleFocus}
+        placeholder="Нажмите, чтобы выбрать договор, или начните вводить..."
         autoComplete="off"
       />
-      {open && results.length > 0 && (
+      {open && (
         <div style={{
           position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 20,
           background: "var(--surface)", border: "1px solid var(--border-s)", borderRadius: 8,
           boxShadow: "var(--shadow-md)", maxHeight: 260, overflowY: "auto",
         }}>
-          {results.map((c) => (
+          {loading && <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--text-3)" }}>Загрузка...</div>}
+          {!loading && results.length === 0 && (
+            <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--text-3)" }}>Ничего не найдено</div>
+          )}
+          {!loading && results.map((c) => (
             <div
               key={c.id}
               onClick={() => select(c)}
