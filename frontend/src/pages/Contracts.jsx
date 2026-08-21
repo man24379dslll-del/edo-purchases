@@ -6,6 +6,7 @@ import { useToast } from "../components/Toast";
 import Modal from "../components/Modal";
 import FilterBar from "../components/FilterBar";
 import ContractorAutocomplete from "../components/ContractorAutocomplete";
+import FileUpload from "../components/FileUpload";
 import { fmtDate, fmtMoney, statusBadgeClass } from "../format";
 
 const STATUSES = ["На согласовании", "Согласовано", "Отклонено"];
@@ -31,34 +32,53 @@ export default function Contracts() {
     try { await api.exportContracts(); } catch (e) { toast(e.message, true); }
   }
 
+  function canDelete(c) {
+    return c.status === "На согласовании" && (c.initiator_email === user.email || user.role === "Админ");
+  }
+
+  async function remove(e, c) {
+    e.stopPropagation();
+    if (!confirm(`Удалить договор ${c.id}?`)) return;
+    try {
+      await api.deleteContract(c.id);
+      toast("✓ Договор удалён");
+      load();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  }
+
   return (
     <div>
       <FilterBar q={q} onQ={setQ} status={status} onStatus={setStatus} statuses={STATUSES} onExport={exportXlsx} />
 
       <div className="top-actions" style={{ marginBottom: 16, justifyContent: "flex-end" }}>
-        {(user.role === "Закупщик" || user.role === "Админ") && (
-          <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ Новый договор</button>
-        )}
+        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ Новый договор</button>
       </div>
 
       <div className="card">
         <table>
           <thead>
             <tr>
-              <th>№</th><th>Контрагент</th><th>Предмет</th><th>Лимит</th><th>Статус</th><th>Создан</th>
+              <th>№</th><th>Контрагент</th><th>Предмет</th><th>Цена за ед.</th><th>Статус</th><th>Создан</th><th></th>
             </tr>
           </thead>
           <tbody>
-            {!list && <tr><td colSpan={6} className="et">Загрузка...</td></tr>}
-            {list && list.length === 0 && <tr><td colSpan={6} className="et">Ничего не найдено</td></tr>}
+            {!list && <tr><td colSpan={7} className="et">Загрузка...</td></tr>}
+            {list && list.length === 0 && <tr><td colSpan={7} className="et">Ничего не найдено</td></tr>}
             {list && list.map((c) => (
               <tr key={c.id} onClick={() => navigate(`/contracts/${c.id}`)}>
                 <td>{c.id}</td>
                 <td>{c.contractor_name}</td>
                 <td>{c.subject}</td>
-                <td>{fmtMoney(c.limit_amount)} ₽</td>
+                <td>{fmtMoney(c.price_per_unit)} ₽</td>
                 <td><span className={`badge ${statusBadgeClass(c.status)}`}>{c.status}</span></td>
                 <td>{fmtDate(c.created_at)}</td>
+                <td>
+                  {canDelete(c) && (
+                    <button className="btn btn-danger btn-xs" onClick={(e) => remove(e, c)}>Удалить</button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -80,8 +100,7 @@ function CreateContractModal({ onClose, onCreated }) {
   const [options, setOptions] = useState(null);
   const [form, setForm] = useState({
     contractor_name: "", contractor_inn: "", legal_entity_id: "", subject: "",
-    contract_number: "", limit_amount: "", valid_until: "", comment: "", needs_marketing: false,
-    file_url: "",
+    contract_number: "", price_per_unit: "", valid_until: "", comment: "", file_url: "",
   });
   const [busy, setBusy] = useState(false);
 
@@ -93,7 +112,7 @@ function CreateContractModal({ onClose, onCreated }) {
     try {
       await api.createContract({
         ...form,
-        limit_amount: Number(form.limit_amount) || 0,
+        price_per_unit: Number(form.price_per_unit) || 0,
         valid_until: form.valid_until || null,
       });
       onCreated();
@@ -142,8 +161,8 @@ function CreateContractModal({ onClose, onCreated }) {
           <input value={form.contract_number} onChange={(e) => setForm({ ...form, contract_number: e.target.value })} />
         </div>
         <div className="field">
-          <label>Лимит, ₽</label>
-          <input type="number" value={form.limit_amount} onChange={(e) => setForm({ ...form, limit_amount: e.target.value })} />
+          <label>Цена за единицу, ₽</label>
+          <input type="number" value={form.price_per_unit} onChange={(e) => setForm({ ...form, price_per_unit: e.target.value })} />
         </div>
       </div>
       <div className="grid-2">
@@ -152,15 +171,9 @@ function CreateContractModal({ onClose, onCreated }) {
           <input type="date" value={form.valid_until} onChange={(e) => setForm({ ...form, valid_until: e.target.value })} />
         </div>
         <div className="field">
-          <label>Ссылка на файл договора</label>
-          <input value={form.file_url} onChange={(e) => setForm({ ...form, file_url: e.target.value })} placeholder="https://..." />
+          <label>Файл договора</label>
+          <FileUpload value={form.file_url} onChange={(url) => setForm({ ...form, file_url: url })} />
         </div>
-      </div>
-      <div className="field">
-        <label><input type="checkbox" checked={form.needs_marketing} style={{ width: "auto", marginRight: 8 }}
-          onChange={(e) => setForm({ ...form, needs_marketing: e.target.checked })} />
-          Требуется согласование Маркетинга
-        </label>
       </div>
       <div className="field">
         <label>Комментарий</label>

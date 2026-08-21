@@ -4,8 +4,7 @@ from sqlalchemy import (
 from sqlalchemy.sql import func
 from app.database import Base
 
-ALL_ROLES = ['Админ', 'Инициатор', 'Закупщик', 'Маркетинг', 'Юрист',
-             'Фин. директор', 'Директор', 'Бухгалтер', 'Склад']
+ALL_ROLES = ['Админ', 'Инициатор', 'Директор', 'Юрист', 'Бухгалтер']
 
 
 class User(Base):
@@ -51,103 +50,25 @@ class Contract(Base):
     legal_entity_name = Column(String)
     subject = Column(Text, nullable=False)
     contract_number = Column(String)
-    limit_amount = Column(Numeric(16, 2), default=0)
+    price_per_unit = Column(Numeric(16, 2), default=0)
     status = Column(String, nullable=False, default="На согласовании")
-    needs_marketing = Column(Boolean, nullable=False, default=False)
+    is_standard = Column(Boolean)  # NULL пока Директор не решил; True/False после его решения на первом этапе
     valid_until = Column(Date)
     comment = Column(Text)
     file_url = Column(String)
-    revision = Column(Integer, nullable=False, default=1)
-
-
-class ContractItem(Base):
-    __tablename__ = "contract_items"
-    id = Column(String, primary_key=True)
-    contract_id = Column(String, ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False)
-    name = Column(String, nullable=False)
-    price = Column(Numeric(16, 2), default=0)
-    unit = Column(String)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    created_by = Column(String, ForeignKey("users.email"))
-
-
-class ContractFile(Base):
-    __tablename__ = "contract_files"
-    id = Column(String, primary_key=True)
-    contract_id = Column(String, ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False)
-    file_name = Column(String, nullable=False)
-    file_url = Column(String, nullable=False)
-    upload_date = Column(DateTime(timezone=True), server_default=func.now())
-    uploaded_by = Column(String, ForeignKey("users.email"))
-
-
-class Amendment(Base):
-    __tablename__ = "amendments"
-    id = Column(String, primary_key=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    initiator_email = Column(String, ForeignKey("users.email"), nullable=False)
-    initiator_fio = Column(String, nullable=False)
-    contract_id = Column(String, ForeignKey("contracts.id"), nullable=False)
-    contractor_name = Column(String)
-    subject = Column(Text, nullable=False)
-    status = Column(String, nullable=False, default="На согласовании")
-    needs_marketing = Column(Boolean, nullable=False, default=False)
-    comment = Column(Text)
-    file_url = Column(String)
-    revision = Column(Integer, nullable=False, default=1)
-
-
-class Purchase(Base):
-    __tablename__ = "purchases"
-    id = Column(String, primary_key=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    initiator_email = Column(String, ForeignKey("users.email"), nullable=False)
-    initiator_fio = Column(String, nullable=False)
-    contract_id = Column(String, ForeignKey("contracts.id"))
-    contractor_name = Column(String)
-    purchase_type = Column(String)
-    subcategory = Column(String)
-    subject = Column(Text, nullable=False)
-    quantity = Column(Numeric(16, 3), default=0)
-    price_per_unit = Column(Numeric(16, 2), default=0)
-    amount = Column(Numeric(16, 2), default=0)
-    status = Column(String, nullable=False, default="На согласовании")
-    comment = Column(Text)
-    file_url = Column(String)
-    execution_status = Column(String, default="Не исполнено")
-    execution_date = Column(DateTime(timezone=True))
-    revision = Column(Integer, nullable=False, default=1)
-
-
-class Receipt(Base):
-    __tablename__ = "receipts"
-    id = Column(String, primary_key=True)
-    purchase_id = Column(String, ForeignKey("purchases.id", ondelete="CASCADE"), nullable=False)
-    date = Column(DateTime(timezone=True), server_default=func.now())
-    user_email = Column(String, ForeignKey("users.email"))
-    user_fio = Column(String)
-    quantity = Column(Numeric(16, 3), nullable=False)
-    comment = Column(Text)
-
-
-class Payment(Base):
-    __tablename__ = "payments"
-    id = Column(String, primary_key=True)
-    purchase_id = Column(String, ForeignKey("purchases.id", ondelete="CASCADE"), nullable=False)
-    date = Column(DateTime(timezone=True), server_default=func.now())
-    user_email = Column(String, ForeignKey("users.email"))
-    user_fio = Column(String)
-    amount = Column(Numeric(16, 2), nullable=False)
-    payment_type = Column(String)
-    payment_form = Column(String)
-    comment = Column(Text)
 
 
 class Approval(Base):
+    """
+    Этапы согласования договора. Цепочка динамическая (не фиксированная заранее):
+    stage 0 — Директор (решает: "Стандартный" → финал, либо отправляет дальше)
+    stage 1 — Юрист (создаётся только если Директор выбрал "не стандартный")
+    stage 2 — Бухгалтер (создаётся после Юриста)
+    stage 3 — Директор, финальная подпись (создаётся после Бухгалтера)
+    """
     __tablename__ = "approvals"
     approval_id = Column(String, primary_key=True)
-    entity_type = Column(String, nullable=False)
-    entity_id = Column(String, nullable=False)
+    contract_id = Column(String, ForeignKey("contracts.id"), nullable=False)
     stage = Column(Integer, nullable=False)
     approver_role = Column(String, nullable=False)
     approver_email = Column(String)
@@ -155,25 +76,7 @@ class Approval(Base):
     decision_date = Column(DateTime(timezone=True))
     comment = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    activated_at = Column(DateTime(timezone=True))
-    deadline = Column(DateTime(timezone=True))
-    escalated = Column(Boolean, nullable=False, default=False)
-    revision = Column(Integer, nullable=False, default=1)
-    signature = Column(String)
-    state = Column(String, nullable=False, default="active")
-
-
-class Delegation(Base):
-    __tablename__ = "delegations"
-    id = Column(String, primary_key=True)
-    delegator_email = Column(String, ForeignKey("users.email"), nullable=False)
-    delegator_role = Column(String, nullable=False)
-    delegate_email = Column(String, ForeignKey("users.email"), nullable=False)
-    starts_at = Column(DateTime(timezone=True), nullable=False)
-    ends_at = Column(DateTime(timezone=True), nullable=False)
-    comment = Column(Text)
-    created_by = Column(String, ForeignKey("users.email"))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    state = Column(String, nullable=False, default="active")  # active | done | skipped
 
 
 class LogEntry(Base):
@@ -193,3 +96,23 @@ class IdCounter(Base):
     __tablename__ = "id_counters"
     name = Column(String, primary_key=True)
     value = Column(BigInteger, nullable=False, default=0)
+
+
+class Document(Base):
+    """
+    Реестр всех загруженных файлов — для страницы 'Хранилище документов'.
+    Запись создаётся сразу при загрузке файла (entity_id ещё NULL, т.к. договор
+    на этот момент может ещё не существовать), и дозаполняется при создании
+    самого договора, когда известно, к чему файл относится.
+    """
+    __tablename__ = "documents"
+    id = Column(String, primary_key=True)
+    stored_filename = Column(String, nullable=False, unique=True)
+    original_name = Column(String, nullable=False)
+    url = Column(String, nullable=False)
+    size_bytes = Column(BigInteger)
+    uploaded_by = Column(String, ForeignKey("users.email"))
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+    entity_type = Column(String)
+    entity_id = Column(String)
+    entity_subject = Column(String)

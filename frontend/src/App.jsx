@@ -5,13 +5,9 @@ import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Approvals from "./pages/Approvals";
-import Delegations from "./pages/Delegations";
 import Contracts from "./pages/Contracts";
 import ContractDetail from "./pages/ContractDetail";
-import Purchases from "./pages/Purchases";
-import PurchaseDetail from "./pages/PurchaseDetail";
-import AmendmentCreate from "./pages/AmendmentCreate";
-import Osv from "./pages/Osv";
+import Documents from "./pages/Documents";
 import Admin from "./pages/Admin";
 
 function RequireAuth({ children }) {
@@ -37,15 +33,9 @@ function AppRoutes() {
       <Route element={<RequireAuth><Layout /></RequireAuth>}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/approvals" element={<Approvals />} />
-        <Route path="/delegations" element={<Delegations />} />
         <Route path="/contracts" element={<Contracts />} />
         <Route path="/contracts/:id" element={<ContractDetail />} />
-        <Route path="/contracts/:id/amendment" element={<AmendmentCreate />} />
-        <Route path="/purchases" element={<Purchases />} />
-        <Route path="/purchases/:id" element={<PurchaseDetail />} />
-        <Route path="/osv" element={
-          <RequireRole roles={["Фин. директор"]}><Osv /></RequireRole>
-        } />
+        <Route path="/documents" element={<Documents />} />
         <Route path="/admin" element={
           <RequireRole roles={["Директор"]}><Admin /></RequireRole>
         } />

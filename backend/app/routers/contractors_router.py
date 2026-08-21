@@ -41,8 +41,4 @@ def create_contractor(data: schemas.ContractorIn, db: Session = Depends(get_db),
 @router.get("/form-options")
 def form_options(db: Session = Depends(get_db), _=Depends(get_current_user)):
     entities = db.query(models.LegalEntity).all()
-    return {
-        "legalEntities": [{"id": e.id, "name": e.name} for e in entities],
-        "purchaseTypes": ["Товар", "Основные средства", "Полиграфия"],
-        "productSubcategories": ["Основные ЗДР/ПП", "Дополнительные ПП", "Тест"],
-    }
+    return {"legalEntities": [{"id": e.id, "name": e.name} for e in entities]}

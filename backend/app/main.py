@@ -1,13 +1,14 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import (
     auth_router, admin_router, contractors_router,
-    contracts_router, purchases_router, approvals_router, reports_router,
+    contracts_router, approvals_router, reports_router, files_router,
 )
 
-app = FastAPI(title="ЭДО Закупок API", version="1.0.0")
+app = FastAPI(title="ЭДО Договоров API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,9 +22,15 @@ app.include_router(auth_router.router)
 app.include_router(admin_router.router)
 app.include_router(contractors_router.router)
 app.include_router(contracts_router.router)
-app.include_router(purchases_router.router)
 app.include_router(approvals_router.router)
 app.include_router(reports_router.router)
+app.include_router(files_router.router)
+app.include_router(files_router.documents_router)
+
+
+@app.on_event("startup")
+def ensure_upload_dir():
+    os.makedirs(settings.upload_dir, exist_ok=True)
 
 
 @app.get("/api/health")

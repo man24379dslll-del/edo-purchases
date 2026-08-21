@@ -1,14 +1,34 @@
 -- ══════════════════════════════════════════════════════════════
--- ЭДО ДОГОВОРОВ — схема Supabase/Railway (Postgres)
--- Выполнить в SQL Editor (Supabase) или через psql-консоль (Railway)
+-- СБРОС на упрощённую схему "только договоры" (выполнить ОДИН РАЗ
+-- на вашей уже развёрнутой Railway-базе взамен всех промежуточных
+-- миграций 002-004, которые для этой версии уже не нужны).
+--
+-- ВНИМАНИЕ: это полностью пересоздаёт базу с нуля — все тестовые
+-- данные (кроме admin@example.com) будут удалены. Если вы уже
+-- заводили реальных пользователей/договоры, которые нужно сохранить —
+-- сначала сообщите, сделаем миграцию данных аккуратнее.
 -- ══════════════════════════════════════════════════════════════
 
+drop table if exists payments cascade;
+drop table if exists receipts cascade;
+drop table if exists purchases cascade;
+drop table if exists amendments cascade;
+drop table if exists contract_items cascade;
+drop table if exists contract_files cascade;
+drop table if exists delegations cascade;
+drop table if exists approvals cascade;
+drop table if exists documents cascade;
+drop table if exists log_entries cascade;
+drop table if exists id_counters cascade;
+drop table if exists contracts cascade;
+drop table if exists contractors cascade;
+drop table if exists legal_entities cascade;
+drop table if exists users cascade;
+drop type if exists user_role cascade;
+
+-- Дальше — ровно содержимое 001_init.sql (полная пересборка с нуля).
 create extension if not exists "pgcrypto";
 
--- ─── ПОЛЬЗОВАТЕЛИ ───
--- role — обычный текст (не Postgres enum): список ролей меняется на уровне
--- Python-кода (ALL_ROLES в app/models.py), so enum only adds migration pain
--- when the role list changes, as it just did.
 create table users (
   email         text primary key,
   fio           text not null,
@@ -18,7 +38,6 @@ create table users (
   created_at    timestamptz not null default now()
 );
 
--- ─── ЮРЛИЦА ───
 create table legal_entities (
   id         text primary key,
   name       text not null,
@@ -26,7 +45,6 @@ create table legal_entities (
   address    text
 );
 
--- ─── КОНТРАГЕНТЫ ───
 create table contractors (
   id             text primary key,
   name           text not null,
@@ -39,7 +57,6 @@ create table contractors (
 );
 create index idx_contractors_inn on contractors(inn);
 
--- ─── ДОГОВОРЫ ───
 create table contracts (
   id                text primary key,
   created_at        timestamptz not null default now(),
@@ -54,7 +71,7 @@ create table contracts (
   contract_number   text,
   price_per_unit    numeric(16,2) default 0,
   status            text not null default 'На согласовании',
-  is_standard       boolean,  -- NULL пока Директор не решил на первом этапе
+  is_standard       boolean,
   valid_until       date,
   comment           text,
   file_url          text
@@ -62,9 +79,6 @@ create table contracts (
 create index idx_contracts_status on contracts(status);
 create index idx_contracts_contractor on contracts(contractor_id);
 
--- ─── СОГЛАСОВАНИЯ ───
--- Маршрут динамический: 0=Директор(рассмотрение) → [1=Юрист → 2=Бухгалтер → 3=Директор(финал)]
--- Второй блок создаётся только если на этапе 0 Директор выбрал "не стандартный".
 create table approvals (
   approval_id    text primary key,
   contract_id    text not null references contracts(id) on delete cascade,
@@ -75,12 +89,11 @@ create table approvals (
   decision_date  timestamptz,
   comment        text,
   created_at     timestamptz not null default now(),
-  state          text not null default 'active'  -- active | done
+  state          text not null default 'active'
 );
 create index idx_approvals_contract on approvals(contract_id);
 create index idx_approvals_role_state on approvals(approver_role, state);
 
--- ─── ЛОГ ───
 create table log_entries (
   id          bigserial primary key,
   timestamp   timestamptz not null default now(),
@@ -93,14 +106,12 @@ create table log_entries (
 );
 create index idx_log_entity on log_entries(entity_type, entity_id);
 
--- ─── ГЕНЕРАЦИЯ ЧЕЛОВЕКОЧИТАЕМЫХ ID ───
 create table id_counters (
   name  text primary key,
   value bigint not null default 0
 );
 insert into id_counters (name, value) values ('global', 0);
 
--- ─── ХРАНИЛИЩЕ ДОКУМЕНТОВ (реестр загруженных файлов) ───
 create table documents (
   id              text primary key,
   stored_filename text not null unique,
@@ -117,11 +128,9 @@ create index idx_documents_entity on documents(entity_type, entity_id);
 create index idx_documents_uploaded_by on documents(uploaded_by);
 create index idx_documents_uploaded_at on documents(uploaded_at desc);
 
--- ─── СИД: юрлица-примеры ───
 insert into legal_entities (id, name, inn, address) values
   ('ЮЛ-001', 'ООО Компания 1', '7701234567', ''),
   ('ЮЛ-002', 'ООО Компания 2', '7709876543', '');
 
--- ─── СИД: первый админ (пароль: admin123, поменяйте сразу после первого входа) ───
 insert into users (email, fio, role, password_hash) values
   ('admin@example.com', 'Администратор', 'Админ', '$2b$12$cYtuiwRlj1vygk5MOORXR.KXAz6c.Qz1E0qtIz6V2pViAxOq9KPMO');

@@ -4,10 +4,8 @@ import { useAuth } from "../context/AuthContext";
 const NAV = [
   { to: "/", icon: "📊", label: "Дашборд", roles: null },
   { to: "/approvals", icon: "✅", label: "Мои согласования", roles: null, badge: true },
-  { to: "/delegations", icon: "🔁", label: "Делегирование", roles: null },
   { to: "/contracts", icon: "📄", label: "Договоры", roles: null },
-  { to: "/purchases", icon: "🛒", label: "Закупки", roles: null },
-  { to: "/osv", icon: "📈", label: "ОСВ", roles: ["Фин. директор", "Админ"] },
+  { to: "/documents", icon: "🗂️", label: "Хранилище документов", roles: null },
   { to: "/admin", icon: "⚙️", label: "Администрирование", roles: ["Директор", "Админ"] },
 ];
 
@@ -19,8 +17,8 @@ export default function Sidebar({ pendingCount }) {
       <div className="sb-logo">
         <div className="sb-logo-icon">📋</div>
         <div>
-          <div className="sb-logo-name">ЭДО Закупок</div>
-          <div className="sb-logo-sub">v5 · cloud</div>
+          <div className="sb-logo-name">ЭДО Договоров</div>
+          <div className="sb-logo-sub">cloud</div>
         </div>
       </div>
 

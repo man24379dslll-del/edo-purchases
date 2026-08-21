@@ -56,6 +56,29 @@ async function downloadFile(path, filename) {
   URL.revokeObjectURL(url);
 }
 
+// Загружает файл (договор, скан и т.п.) на backend и возвращает абсолютный URL,
+// по которому файл потом можно открыть в <iframe>/<img> или скачать напрямую.
+async function uploadFile(file) {
+  const token = getToken();
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/api/files/upload`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const data = await res.json();
+      detail = data.detail || JSON.stringify(data);
+    } catch (_) {}
+    throw new Error(detail);
+  }
+  const data = await res.json();
+  return { ...data, url: `${API_BASE}${data.url}` };
+}
+
 export const api = {
   login: (email, password) => request("/api/auth/login", { method: "POST", body: { email, password }, auth: false }),
   me: () => request("/api/auth/me"),
@@ -63,36 +86,19 @@ export const api = {
   dashboard: () => request("/api/dashboard"),
   myApprovals: () => request("/api/approvals/mine"),
   decide: (payload) => request("/api/approvals/decide", { method: "POST", body: payload }),
-  decideBulk: (payload) => request("/api/approvals/decide-bulk", { method: "POST", body: payload }),
-  checkOverdue: () => request("/api/approvals/check-overdue", { method: "POST" }),
-
-  delegations: () => request("/api/approvals/delegations"),
-  createDelegation: (payload) => request("/api/approvals/delegations", { method: "POST", body: payload }),
-  removeDelegation: (id) => request(`/api/approvals/delegations/${id}`, { method: "DELETE" }),
-
-  resubmitContract: (id, payload) => request(`/api/contracts/${id}/resubmit`, { method: "POST", body: payload }),
-  resubmitPurchase: (id, payload) => request(`/api/purchases/${id}/resubmit`, { method: "POST", body: payload }),
 
   contracts: (filters) => request(`/api/contracts${qs(filters)}`),
   contract: (id) => request(`/api/contracts/${id}`),
   createContract: (payload) => request("/api/contracts", { method: "POST", body: payload }),
-  amendments: () => request("/api/contracts/amendments/list"),
-  createAmendment: (payload) => request("/api/contracts/amendments", { method: "POST", body: payload }),
+  deleteContract: (id) => request(`/api/contracts/${id}`, { method: "DELETE" }),
   exportContracts: () => downloadFile("/api/export/contracts.xlsx", "contracts.xlsx"),
-
-  purchases: (filters) => request(`/api/purchases${qs(filters)}`),
-  purchase: (id) => request(`/api/purchases/${id}`),
-  createPurchase: (payload) => request("/api/purchases", { method: "POST", body: payload }),
-  addReceipt: (payload) => request("/api/purchases/receipts", { method: "POST", body: payload }),
-  addPayment: (payload) => request("/api/purchases/payments", { method: "POST", body: payload }),
-  exportPurchases: () => downloadFile("/api/export/purchases.xlsx", "purchases.xlsx"),
 
   contractors: (q) => request(`/api/contractors${qs({ q })}`),
   createContractor: (payload) => request("/api/contractors", { method: "POST", body: payload }),
   formOptions: () => request("/api/contractors/form-options"),
 
-  osv: () => request("/api/osv"),
-  exportOsv: () => downloadFile("/api/export/osv.xlsx", "osv.xlsx"),
+  uploadFile: (file) => uploadFile(file),
+  documents: (filters) => request(`/api/documents${qs(filters)}`),
   log: (entityId) => request(`/api/log/${entityId}`),
 
   adminUsers: () => request("/api/admin/users"),

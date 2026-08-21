@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../components/Toast";
 
-const ALL_ROLES = ['Админ', 'Инициатор', 'Закупщик', 'Маркетинг', 'Юрист',
-  'Фин. директор', 'Директор', 'Бухгалтер', 'Склад'];
+const ALL_ROLES = ['Админ', 'Инициатор', 'Директор', 'Юрист', 'Бухгалтер'];
 
 export default function Admin() {
   const toast = useToast();

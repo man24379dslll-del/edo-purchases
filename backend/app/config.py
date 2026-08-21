@@ -22,5 +22,11 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
+    # Папка для хранения загруженных файлов (договоры, закупки и т.д.).
+    # ВАЖНО на Railway: файловая система контейнера эфемерна — без подключённого
+    # Volume файлы пропадут при следующем деплое. См. README, раздел "Файлы".
+    upload_dir: str = os.getenv("UPLOAD_DIR", "./uploads")
+    max_upload_mb: int = int(os.getenv("MAX_UPLOAD_MB", "20"))
+
 
 settings = Settings()

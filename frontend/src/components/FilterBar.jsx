@@ -1,4 +1,4 @@
-export default function FilterBar({ q, onQ, status, onStatus, statuses, onExport, exportLabel }) {
+export default function FilterBar({ q, onQ, status, onStatus, statuses, onExport }) {
   return (
     <div className="top-actions" style={{ marginBottom: 16, justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
       <div className="top-actions" style={{ flex: 1, minWidth: 260 }}>

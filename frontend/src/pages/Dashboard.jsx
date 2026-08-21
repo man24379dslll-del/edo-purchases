@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { fmtMoney } from "../format";
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
@@ -13,11 +12,9 @@ export default function Dashboard() {
 
   const kpis = [
     { label: "Договоры всего", value: data.contractsTotal },
-    { label: "Договоры на согласовании", value: data.contractsPending },
-    { label: "Договоры согласовано", value: data.contractsApproved },
-    { label: "Закупки всего", value: data.purchasesTotal },
-    { label: "Закупки на согласовании", value: data.purchasesPending },
-    { label: "Сумма закупок, ₽", value: fmtMoney(data.purchasesAmount) },
+    { label: "На согласовании", value: data.contractsPending },
+    { label: "Согласовано", value: data.contractsApproved },
+    { label: "Отклонено", value: data.contractsRejected },
     { label: "Ждут вашего решения", value: data.myPendingApprovals },
   ];
 
@@ -34,8 +31,8 @@ export default function Dashboard() {
       <div className="card">
         <div className="card-header"><div className="card-title">Добро пожаловать</div></div>
         <div className="card-body" style={{ color: "var(--text-2)" }}>
-          Используйте меню слева, чтобы создавать договоры и закупки, а также согласовывать
-          документы, ожидающие вашего решения.
+          Используйте меню слева, чтобы создавать договоры, прикреплять к ним файлы
+          и согласовывать документы, ожидающие вашего решения.
         </div>
       </div>
     </div>
