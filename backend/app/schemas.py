@@ -99,6 +99,12 @@ class DecisionIn(BaseModel):
     standard: Optional[bool] = None
 
 
+class AttachDocumentIn(BaseModel):
+    url: str
+    doc_type: str
+    description: Optional[str] = None
+
+
 class DocumentOut(BaseModel):
     id: str
     original_name: str
@@ -109,6 +115,7 @@ class DocumentOut(BaseModel):
     entity_type: Optional[str] = None
     entity_id: Optional[str] = None
     entity_subject: Optional[str] = None
+    doc_type: Optional[str] = None
 
     class Config:
         from_attributes = True

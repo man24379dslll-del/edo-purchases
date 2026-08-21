@@ -122,7 +122,8 @@ create table documents (
   uploaded_at     timestamptz not null default now(),
   entity_type     text,
   entity_id       text,
-  entity_subject  text
+  entity_subject  text,
+  doc_type        text
 );
 create index idx_documents_entity on documents(entity_type, entity_id);
 create index idx_documents_uploaded_by on documents(uploaded_by);

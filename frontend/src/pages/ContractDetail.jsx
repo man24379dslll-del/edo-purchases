@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../components/Toast";
 import ApprovalTrail from "../components/ApprovalTrail";
 import FilePreview from "../components/FilePreview";
+import FileUpload from "../components/FileUpload";
 import HistoryPanel from "../components/HistoryPanel";
 import Tabs from "../components/Tabs";
 import { fmtDate, fmtMoney, statusBadgeClass } from "../format";
@@ -26,7 +27,7 @@ export default function ContractDetail() {
 
   if (!data) return <div className="loading">Загрузка...</div>;
 
-  const { contract, approvals } = data;
+  const { contract, approvals, documents } = data;
   const myStage = approvals.find((a) => a.state === "active" && a.role === user.role);
   const isDirectorReview = myStage && myStage.stage === 0;
   const canDelete = contract.status === "На согласовании" &&
@@ -132,10 +133,102 @@ export default function ContractDetail() {
               ),
             },
             { label: "Файл", content: <FilePreview url={contract.file_url} /> },
+            { label: `Документы (${documents?.length || 0})`, content: <DocumentsPanel contractId={id} documents={documents} onChange={load} /> },
             { label: "История", content: <HistoryPanel entityId={id} /> },
           ]} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function DocumentsPanel({ contractId, documents, onChange }) {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [docTypes, setDocTypes] = useState([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ doc_type: "Доп. соглашение", description: "", file_url: "" });
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { api.docTypes().then(setDocTypes); }, []);
+
+  async function submit() {
+    if (!form.file_url) { toast("Прикрепите файл", true); return; }
+    setBusy(true);
+    try {
+      await api.attachDocument(contractId, { url: form.file_url, doc_type: form.doc_type, description: form.description || null });
+      toast("✓ Документ прикреплён");
+      setForm({ doc_type: "Доп. соглашение", description: "", file_url: "" });
+      setShowAdd(false);
+      onChange();
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(docId) {
+    if (!confirm("Удалить этот документ?")) return;
+    try {
+      await api.removeContractDocument(contractId, docId);
+      toast("✓ Документ удалён");
+      onChange();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }
+
+  return (
+    <div>
+      {(!documents || documents.length === 0) && <div className="empty-state">Документов пока нет</div>}
+      {documents && documents.length > 0 && (
+        <table style={{ marginBottom: 16 }}>
+          <thead><tr><th>Тип</th><th>Файл</th><th>Описание</th><th>Загрузил</th><th>Когда</th><th></th></tr></thead>
+          <tbody>
+            {documents.map((d) => (
+              <tr key={d.id} style={{ cursor: "default" }}>
+                <td><span className="badge b-p">{d.doc_type || "—"}</span></td>
+                <td><a href={d.url} target="_blank" rel="noreferrer">📎 {d.original_name}</a></td>
+                <td>{d.entity_subject || "—"}</td>
+                <td>{d.uploaded_by || "—"}</td>
+                <td>{fmtDate(d.uploaded_at)}</td>
+                <td>
+                  {(user.email === d.uploaded_by || user.role === "Директор" || user.role === "Админ") && (
+                    <button className="btn btn-danger btn-xs" onClick={() => remove(d.id)}>Удалить</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {!showAdd ? (
+        <button className="btn btn-ghost btn-xs" onClick={() => setShowAdd(true)}>+ Добавить документ</button>
+      ) : (
+        <div className="card" style={{ padding: 16, boxShadow: "none", border: "1px dashed var(--border-s)" }}>
+          <div className="field">
+            <label>Тип документа</label>
+            <select value={form.doc_type} onChange={(e) => setForm({ ...form, doc_type: e.target.value })}>
+              {docTypes.filter((t) => t !== "Договор").map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label>Описание</label>
+            <textarea rows={2} placeholder="Например: ДС №2 об изменении сроков поставки"
+              value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </div>
+          <div className="field">
+            <label>Файл *</label>
+            <FileUpload value={form.file_url} onChange={(url) => setForm({ ...form, file_url: url })} />
+          </div>
+          <div className="top-actions">
+            <button className="btn btn-primary btn-xs" disabled={busy} onClick={submit}>Прикрепить</button>
+            <button className="btn btn-ghost btn-xs" onClick={() => setShowAdd(false)}>Отмена</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

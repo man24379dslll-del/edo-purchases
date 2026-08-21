@@ -17,6 +17,7 @@ set "TEMP_EXTRACT=%TEMP%\edo_extract_%RANDOM%"
 
 echo.
 echo Extracting archive: %ZIPFILE%
+if exist "%TEMP_EXTRACT%" rmdir /s /q "%TEMP_EXTRACT%"
 powershell -NoProfile -Command "Expand-Archive -LiteralPath '%ZIPFILE%' -DestinationPath '%TEMP_EXTRACT%' -Force"
 if errorlevel 1 (
     echo.
@@ -25,9 +26,32 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Copying files into the project folder (the .git folder is NOT touched)...
-echo (forcing full overwrite, ignoring file timestamps)
-robocopy "%TEMP_EXTRACT%" "%TARGET%" /MIR /IS /IT /XD .git node_modules dist /XF "update*.bat" ".env" ".env.local" /NFL /NDL /NJH /NJS >nul
+echo.
+echo Removing old project files (keeping .git, node_modules, dist, .env files, this script)...
+pushd "%TARGET%"
+
+for /d %%D in (*) do (
+    if /i not "%%D"==".git" (
+        if /i not "%%D"=="node_modules" (
+            if /i not "%%D"=="dist" (
+                rmdir /s /q "%%D" 2>nul
+            )
+        )
+    )
+)
+
+for %%F in (*) do (
+    set "SKIP="
+    if /i "%%~nxF"==".env" set "SKIP=1"
+    if /i "%%~nxF"==".env.local" set "SKIP=1"
+    echo %%~nxF | findstr /i /b "update" >nul && set "SKIP=1"
+    if not defined SKIP del /q "%%F" 2>nul
+)
+
+popd
+
+echo Copying new files in...
+xcopy "%TEMP_EXTRACT%\*" "%TARGET%" /E /I /Y /Q >nul
 
 rmdir /s /q "%TEMP_EXTRACT%"
 
@@ -40,7 +64,7 @@ echo.
 set /p DOCOMMIT="Run git add / commit / push now? (y/n): "
 if /i "%DOCOMMIT%"=="y" (
     pushd "%TARGET%"
-    git add .
+    git add -A
     set "MSG="
     set /p MSG="Commit message (press Enter for 'Update'): "
     if "!MSG!"=="" set "MSG=Update"

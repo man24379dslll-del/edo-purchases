@@ -37,12 +37,20 @@ def list_contracts(
     return query.order_by(models.Contract.created_at.desc()).all()
 
 
+@router.get("/doc-types")
+def get_doc_types():
+    return wf.DOC_TYPES
+
+
 @router.get("/{contract_id}")
 def get_contract(contract_id: str, db: Session = Depends(get_db), _=Depends(get_current_user)):
     c = db.query(models.Contract).filter(models.Contract.id == contract_id).first()
     if not c:
         raise HTTPException(404, "Договор не найден.")
     trail = wf.get_approval_trail(db, contract_id)
+    docs = db.query(models.Document).filter(
+        models.Document.entity_type == "contract", models.Document.entity_id == contract_id,
+    ).order_by(models.Document.uploaded_at.asc()).all()
     return {
         "contract": schemas.ContractOut.model_validate(c),
         "approvals": [
@@ -50,6 +58,7 @@ def get_contract(contract_id: str, db: Session = Depends(get_db), _=Depends(get_
              "state": a.state, "date": a.decision_date, "comment": a.comment}
             for a in trail
         ],
+        "documents": [schemas.DocumentOut.model_validate(d) for d in docs],
     }
 
 
@@ -104,5 +113,43 @@ def delete_contract(contract_id: str, db: Session = Depends(get_db), user=Depend
     except ValueError as e:
         raise HTTPException(400, str(e))
     wf.delete_contract(db, contract, user.email, user.role)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/{contract_id}/documents")
+def attach_document(contract_id: str, data: schemas.AttachDocumentIn, db: Session = Depends(get_db),
+                     user=Depends(get_current_user)):
+    """
+    Прикрепляет уже загруженный файл (см. POST /api/files/upload) к договору —
+    доп. соглашение, приложение, скан подписанного экземпляра и т.д.
+    """
+    contract = db.query(models.Contract).filter(models.Contract.id == contract_id).first()
+    if not contract:
+        raise HTTPException(404, "Договор не найден.")
+    if data.doc_type not in wf.DOC_TYPES:
+        raise HTTPException(400, f"Неизвестный тип документа. Допустимые: {', '.join(wf.DOC_TYPES)}")
+    wf.link_document(db, data.url, contract_id, data.description or contract.subject, doc_type=data.doc_type)
+    wf.add_log(db, user.email, user.role, f"Добавил документ «{data.doc_type}»", "contract", contract_id,
+               data.description or "")
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/{contract_id}/documents/{doc_id}")
+def remove_document(contract_id: str, doc_id: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    contract = db.query(models.Contract).filter(models.Contract.id == contract_id).first()
+    if not contract:
+        raise HTTPException(404, "Договор не найден.")
+    doc = db.query(models.Document).filter(
+        models.Document.id == doc_id, models.Document.entity_id == contract_id,
+    ).first()
+    if not doc:
+        raise HTTPException(404, "Документ не найден.")
+    if user.email not in (contract.initiator_email, doc.uploaded_by) and user.role not in ("Директор", "Админ"):
+        raise HTTPException(403, "Недостаточно прав для удаления этого документа.")
+    db.delete(doc)
+    wf.add_log(db, user.email, user.role, f"Удалил документ «{doc.doc_type or ''}»", "contract", contract_id,
+               doc.original_name)
     db.commit()
     return {"ok": True}

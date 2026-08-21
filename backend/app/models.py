@@ -116,3 +116,4 @@ class Document(Base):
     entity_type = Column(String)
     entity_id = Column(String)
     entity_subject = Column(String)
+    doc_type = Column(String)  # "Договор" | "Доп. соглашение" | "Приложение" | "Скан подписанного" | "Прочее"

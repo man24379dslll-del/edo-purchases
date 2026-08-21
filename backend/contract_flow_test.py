@@ -193,5 +193,50 @@ check(r.status_code == 200 and r.headers["content-type"].startswith("application
 r = client.get("/api/admin/roles", headers=login("dir@t.co"))
 check(set(r.json()) == {"Админ", "Инициатор", "Директор", "Юрист", "Бухгалтер"}, f"роли обрезаны до нужных: {r.json()}")
 
+# ── 12. Прикрепление доп. соглашений/приложений с типом ──
+r = client.get("/api/contracts/doc-types")
+check(r.status_code == 200 and "Доп. соглашение" in r.json(), f"список типов документов доступен: {r.json()}")
+
+r = client.post("/api/files/upload", headers=h_init,
+                 files={"file": ("dop_soglashenie.pdf", b"%PDF-1.4 ds", "application/pdf")})
+ds_url = r.json()["url"]
+
+r = client.post(f"/api/contracts/{cid_std}/documents", headers=h_init, json={
+    "url": ds_url, "doc_type": "Доп. соглашение", "description": "ДС №1 об изменении сроков",
+})
+check(r.status_code == 200, f"доп. соглашение прикреплено к договору: {r.text}")
+
+r = client.post("/api/files/upload", headers=h_init,
+                 files={"file": ("prilozhenie.pdf", b"%PDF-1.4 pr", "application/pdf")})
+pr_url = r.json()["url"]
+r = client.post(f"/api/contracts/{cid_std}/documents", headers=h_init, json={
+    "url": pr_url, "doc_type": "Приложение", "description": "Приложение №1 — спецификация",
+})
+check(r.status_code == 200, f"приложение прикреплено: {r.text}")
+
+r = client.get(f"/api/contracts/{cid_std}", headers=h_init)
+docs = r.json()["documents"]
+types = sorted(d["doc_type"] for d in docs)
+check(types == ["Доп. соглашение", "Приложение"],
+      f"на карточке договора видны прикреплённые типы документов: {types}")
+
+# недопустимый тип отклоняется
+r = client.post(f"/api/contracts/{cid_std}/documents", headers=h_init, json={
+    "url": ds_url, "doc_type": "Чепуха",
+})
+check(r.status_code == 400, f"недопустимый тип документа отклонён: {r.status_code}")
+
+# удаление документа: чужой пользователь без прав не может
+r = client.get(f"/api/contracts/{cid_std}", headers=h_init)
+doc_id = next(d["id"] for d in r.json()["documents"] if d["doc_type"] == "Приложение")
+r = client.delete(f"/api/contracts/{cid_std}/documents/{doc_id}", headers=login("lawyer@t.co"))
+check(r.status_code == 403, f"чужой пользователь не может удалить чужой документ: {r.status_code}")
+
+# а инициатор договора — может
+r = client.delete(f"/api/contracts/{cid_std}/documents/{doc_id}", headers=h_init)
+check(r.status_code == 200, f"инициатор договора удалил документ: {r.text}")
+r = client.get(f"/api/contracts/{cid_std}", headers=h_init)
+check(len(r.json()["documents"]) == 1, f"документ реально удалён из списка: {r.json()['documents']}")
+
 shutil.rmtree(UPLOAD_DIR, ignore_errors=True)
 print("\nВСЕ ПРОВЕРКИ НОВОЙ УПРОЩЁННОЙ СИСТЕМЫ ПРОШЛИ УСПЕШНО")

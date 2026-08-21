@@ -187,7 +187,10 @@ def delete_contract(db: Session, contract, user_email: str, user_role: str):
 # ХРАНИЛИЩЕ ДОКУМЕНТОВ
 # ══════════════════════════════════════════════════════════════
 
-def link_document(db: Session, file_url: str, entity_id: str, entity_subject: str):
+DOC_TYPES = ["Договор", "Доп. соглашение", "Приложение", "Скан подписанного", "Прочее"]
+
+
+def link_document(db: Session, file_url: str, entity_id: str, entity_subject: str, doc_type: str = "Договор"):
     """Привязывает ранее загруженный файл к договору (см. files_router.upload_file)."""
     if not file_url:
         return
@@ -196,3 +199,4 @@ def link_document(db: Session, file_url: str, entity_id: str, entity_subject: st
         doc.entity_type = "contract"
         doc.entity_id = entity_id
         doc.entity_subject = entity_subject
+        doc.doc_type = doc_type
