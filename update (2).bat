@@ -26,7 +26,8 @@ if errorlevel 1 (
 )
 
 echo Copying files into the project folder (the .git folder is NOT touched)...
-robocopy "%TEMP_EXTRACT%" "%TARGET%" /E /XD .git node_modules dist /NFL /NDL /NJH /NJS >nul
+echo (forcing full overwrite, ignoring file timestamps)
+robocopy "%TEMP_EXTRACT%" "%TARGET%" /MIR /IS /IT /XD .git node_modules dist /XF "update*.bat" ".env" ".env.local" /NFL /NDL /NJH /NJS >nul
 
 rmdir /s /q "%TEMP_EXTRACT%"
 
