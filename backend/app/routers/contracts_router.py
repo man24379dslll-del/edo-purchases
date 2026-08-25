@@ -134,22 +134,3 @@ def attach_document(contract_id: str, data: schemas.AttachDocumentIn, db: Sessio
                data.description or "")
     db.commit()
     return {"ok": True}
-
-
-@router.delete("/{contract_id}/documents/{doc_id}")
-def remove_document(contract_id: str, doc_id: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    contract = db.query(models.Contract).filter(models.Contract.id == contract_id).first()
-    if not contract:
-        raise HTTPException(404, "Договор не найден.")
-    doc = db.query(models.Document).filter(
-        models.Document.id == doc_id, models.Document.entity_id == contract_id,
-    ).first()
-    if not doc:
-        raise HTTPException(404, "Документ не найден.")
-    if user.email not in (contract.initiator_email, doc.uploaded_by) and user.role not in ("Директор", "Админ"):
-        raise HTTPException(403, "Недостаточно прав для удаления этого документа.")
-    db.delete(doc)
-    wf.add_log(db, user.email, user.role, f"Удалил документ «{doc.doc_type or ''}»", "contract", contract_id,
-               doc.original_name)
-    db.commit()
-    return {"ok": True}

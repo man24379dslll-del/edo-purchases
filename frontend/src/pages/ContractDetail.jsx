@@ -171,7 +171,7 @@ function DocumentsPanel({ contractId, documents, onChange }) {
   async function remove(docId) {
     if (!confirm("Удалить этот документ?")) return;
     try {
-      await api.removeContractDocument(contractId, docId);
+      await api.removeDocument(docId);
       toast("✓ Документ удалён");
       onChange();
     } catch (e) {

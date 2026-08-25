@@ -114,3 +114,37 @@ def list_documents(
     if entity_type:
         query = query.filter(models.Document.entity_type == entity_type)
     return query.order_by(models.Document.uploaded_at.desc()).limit(500).all()
+
+
+@documents_router.delete("/{doc_id}")
+def delete_document(doc_id: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """
+    Удаляет документ из реестра и сам файл с диска. Работает как для файлов,
+    привязанных к договору, так и для "ничейных" (не привязанных ни к чему)
+    заброшенных загрузок — их тоже можно почистить прямо из хранилища.
+    """
+    doc = db.query(models.Document).filter(models.Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Документ не найден.")
+
+    allowed = user.role in ("Директор", "Админ") or user.email == doc.uploaded_by
+    if not allowed and doc.entity_id:
+        contract = db.query(models.Contract).filter(models.Contract.id == doc.entity_id).first()
+        if contract and contract.initiator_email == user.email:
+            allowed = True
+    if not allowed:
+        raise HTTPException(403, "Недостаточно прав для удаления этого документа.")
+
+    path = _safe_join(doc.stored_filename)
+    if os.path.isfile(path):
+        try:
+            os.remove(path)
+        except OSError:
+            pass  # файл не удалился с диска — не критично, запись из реестра всё равно уберём
+
+    from app.services.workflow import add_log
+    add_log(db, user.email, user.role, f"Удалил документ «{doc.doc_type or ''}»",
+            doc.entity_type or "document", doc.entity_id or doc_id, doc.original_name)
+    db.delete(doc)
+    db.commit()
+    return {"ok": True}

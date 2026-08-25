@@ -229,14 +229,34 @@ check(r.status_code == 400, f"недопустимый тип документа
 # удаление документа: чужой пользователь без прав не может
 r = client.get(f"/api/contracts/{cid_std}", headers=h_init)
 doc_id = next(d["id"] for d in r.json()["documents"] if d["doc_type"] == "Приложение")
-r = client.delete(f"/api/contracts/{cid_std}/documents/{doc_id}", headers=login("lawyer@t.co"))
+r = client.delete(f"/api/documents/{doc_id}", headers=login("lawyer@t.co"))
 check(r.status_code == 403, f"чужой пользователь не может удалить чужой документ: {r.status_code}")
 
 # а инициатор договора — может
-r = client.delete(f"/api/contracts/{cid_std}/documents/{doc_id}", headers=h_init)
+r = client.delete(f"/api/documents/{doc_id}", headers=h_init)
 check(r.status_code == 200, f"инициатор договора удалил документ: {r.text}")
 r = client.get(f"/api/contracts/{cid_std}", headers=h_init)
 check(len(r.json()["documents"]) == 1, f"документ реально удалён из списка: {r.json()['documents']}")
+
+# ── 13. Удаление НЕПРИВЯЗАННОГО файла из хранилища документов ──
+r = client.post("/api/files/upload", headers=h_init,
+                 files={"file": ("orphan.pdf", b"%PDF-1.4 orphan", "application/pdf")})
+orphan_url = r.json()["url"]
+r = client.get("/api/documents", headers=h_init, params={"q": "orphan"})
+orphan_doc = r.json()[0]
+check(orphan_doc["entity_id"] is None, "непривязанный файл виден в реестре без привязки")
+
+r = client.delete(f"/api/documents/{orphan_doc['id']}", headers=login("lawyer@t.co"))
+check(r.status_code == 403, f"чужой пользователь не может удалить чужой непривязанный файл: {r.status_code}")
+
+r = client.delete(f"/api/documents/{orphan_doc['id']}", headers=h_init)
+check(r.status_code == 200, f"тот, кто загрузил, может удалить непривязанный файл: {r.text}")
+
+r = client.get("/api/documents", headers=h_init, params={"q": "orphan"})
+check(len(r.json()) == 0, "непривязанный файл реально удалён из реестра")
+
+r = client.get(orphan_url)
+check(r.status_code == 404, "файл реально удалён и с диска (ссылка больше не работает)")
 
 shutil.rmtree(UPLOAD_DIR, ignore_errors=True)
 print("\nВСЕ ПРОВЕРКИ НОВОЙ УПРОЩЁННОЙ СИСТЕМЫ ПРОШЛИ УСПЕШНО")
