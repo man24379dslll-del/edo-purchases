@@ -76,7 +76,9 @@ async function uploadFile(file) {
     throw new Error(detail);
   }
   const data = await res.json();
-  return { ...data, url: `${API_BASE}${data.url}` };
+  // backend теперь всегда возвращает абсолютный url — просто передаём как есть
+  // (раньше тут был `${API_BASE}${data.url}`, что задвоило бы адрес).
+  return data;
 }
 
 export const api = {

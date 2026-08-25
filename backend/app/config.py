@@ -28,5 +28,13 @@ class Settings(BaseSettings):
     upload_dir: str = os.getenv("UPLOAD_DIR", "./uploads")
     max_upload_mb: int = int(os.getenv("MAX_UPLOAD_MB", "20"))
 
+    # Публичный адрес backend (например https://edo-purchases-production.up.railway.app),
+    # без слэша на конце. Используется, чтобы ссылки на файлы в БД всегда
+    # сохранялись АБСОЛЮТНЫМИ — иначе относительная ссылка вида "/api/files/x.pdf"
+    # в браузере откроется относительно ДОМЕНА ФРОНТЕНДА (не backend), и вместо
+    # файла попадёт на несуществующий путь фронтенда. Если не задано —
+    # используется адрес из самого запроса (обычно тоже работает на Railway).
+    public_base_url: str = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+
 
 settings = Settings()

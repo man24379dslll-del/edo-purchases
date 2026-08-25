@@ -20,7 +20,7 @@ import os
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from fastapi.responses import FileResponse
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -53,7 +53,8 @@ def _safe_join(filename: str) -> str:
 
 
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+async def upload_file(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db),
+                       user=Depends(get_current_user)):
     _ensure_upload_dir()
 
     original_name = file.filename or "file"
@@ -72,7 +73,10 @@ async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db
     with open(dest_path, "wb") as f:
         f.write(contents)
 
-    url = f"/api/files/{unique_name}"
+    # ВСЕГДА сохраняем и отдаём АБСОЛЮТНУЮ ссылку (см. комментарий у public_base_url
+    # в config.py) — иначе относительная ссылка в браузере резолвится не туда.
+    base = settings.public_base_url or str(request.base_url).rstrip("/")
+    url = f"{base}/api/files/{unique_name}"
     db.add(models.Document(
         id=gen_id(db, "ФАЙЛ"), stored_filename=unique_name, original_name=original_name,
         url=url, size_bytes=len(contents), uploaded_by=user.email,
