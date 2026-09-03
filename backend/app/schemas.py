@@ -15,6 +15,7 @@ class TokenOut(BaseModel):
     email: str
     fio: str
     role: str
+    contractor_id: Optional[str] = None
 
 
 class UserOut(BaseModel):
@@ -22,6 +23,7 @@ class UserOut(BaseModel):
     fio: str
     role: str
     is_active: bool
+    contractor_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -32,6 +34,7 @@ class AddUserIn(BaseModel):
     fio: str
     role: str
     password: Optional[str] = None
+    contractor_id: Optional[str] = None  # обязательно, если role == "Контрагент"
 
 
 class LegalEntityIn(BaseModel):

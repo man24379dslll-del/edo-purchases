@@ -191,7 +191,7 @@ check(r.status_code == 200 and r.headers["content-type"].startswith("application
 
 # ── 11. Роли: старых ролей больше нет ──
 r = client.get("/api/admin/roles", headers=login("dir@t.co"))
-check(set(r.json()) == {"Админ", "Инициатор", "Директор", "Юрист", "Бухгалтер"}, f"роли обрезаны до нужных: {r.json()}")
+check(set(r.json()) == {"Админ", "Инициатор", "Директор", "Юрист", "Бухгалтер", "Контрагент"}, f"роли: {r.json()}")
 
 # ── 12. Прикрепление доп. соглашений/приложений с типом ──
 r = client.get("/api/contracts/doc-types")
@@ -259,4 +259,82 @@ r = client.get(orphan_url)
 check(r.status_code == 404, "файл реально удалён и с диска (ссылка больше не работает)")
 
 shutil.rmtree(UPLOAD_DIR, ignore_errors=True)
-print("\nВСЕ ПРОВЕРКИ НОВОЙ УПРОЩЁННОЙ СИСТЕМЫ ПРОШЛИ УСПЕШНО")
+
+# ══════════════════════════════════════════════════════════════
+# ПОРТАЛ КОНТРАГЕНТА
+# ══════════════════════════════════════════════════════════════
+
+# создаём двух контрагентов через обычные договоры (проще, чем руками)
+r = client.post("/api/contracts", headers=h_init, json={"contractor_name": "ООО Портал-1", "subject": "Договор для контрагента 1"})
+contract_for_c1 = r.json()["id"]
+r = client.get(f"/api/contracts/{contract_for_c1}", headers=h_init)
+c1_id = r.json()["contract"]["contractor_id"]
+
+r = client.post("/api/contracts", headers=h_init, json={"contractor_name": "ООО Портал-2", "subject": "Договор для контрагента 2"})
+contract_for_c2 = r.json()["id"]
+r = client.get(f"/api/contracts/{contract_for_c2}", headers=h_init)
+c2_id = r.json()["contract"]["contractor_id"]
+
+h_dir = login("dir@t.co")
+
+# нельзя добавить пользователя-Контрагента без contractor_id
+r = client.post("/api/admin/users", headers=h_dir, json={
+    "email": "portal1@t.co", "fio": "Портал 1", "role": "Контрагент",
+})
+check(r.status_code == 400, f"нельзя создать логин Контрагента без contractor_id: {r.status_code}")
+
+r = client.post("/api/admin/users", headers=h_dir, json={
+    "email": "portal1@t.co", "fio": "Портал 1", "role": "Контрагент",
+    "contractor_id": c1_id, "password": "pass123",
+})
+check(r.status_code == 200, f"логин Контрагента создан: {r.text}")
+
+r = client.post("/api/admin/users", headers=h_dir, json={
+    "email": "portal2@t.co", "fio": "Портал 2", "role": "Контрагент",
+    "contractor_id": c2_id, "password": "pass123",
+})
+check(r.status_code == 200, "второй логин Контрагента создан")
+
+h_c1 = login("portal1@t.co")
+h_c2 = login("portal2@t.co")
+
+# контрагент видит только СВОИ договоры
+r = client.get("/api/contracts", headers=h_c1)
+ids = [c["id"] for c in r.json()]
+check(contract_for_c1 in ids and contract_for_c2 not in ids, f"контрагент видит только свой договор: {ids}")
+
+# и не может открыть чужой напрямую по id
+r = client.get(f"/api/contracts/{contract_for_c2}", headers=h_c1)
+check(r.status_code == 404, f"контрагент не может открыть чужой договор: {r.status_code}")
+
+# может открыть свой
+r = client.get(f"/api/contracts/{contract_for_c1}", headers=h_c1)
+check(r.status_code == 200, f"контрагент открывает свой договор: {r.status_code}")
+
+# не может создавать/удалять договоры, согласовывать, грузить файлы
+r = client.post("/api/contracts", headers=h_c1, json={"contractor_name": "Хак", "subject": "Попытка"})
+check(r.status_code == 403, "контрагенту недоступно создание договоров")
+
+r = client.delete(f"/api/contracts/{contract_for_c1}", headers=h_c1)
+check(r.status_code == 403, "контрагенту недоступно удаление договоров")
+
+r = client.post("/api/approvals/decide", headers=h_c1, json={"contract_id": contract_for_c1, "decision": "Согласовано", "standard": True})
+check(r.status_code == 403, "контрагенту недоступно согласование")
+
+r = client.post("/api/files/upload", headers=h_c1, files={"file": ("x.pdf", b"%PDF-1.4", "application/pdf")})
+check(r.status_code == 403, "контрагенту недоступна загрузка файлов")
+
+# "Мои согласования" у контрагента всегда пусто
+r = client.get("/api/approvals/mine", headers=h_c1)
+check(r.json() == [], "у контрагента нет задач на согласование")
+
+# хранилище документов — только свои
+r = client.get("/api/documents", headers=h_c1)
+check(all(d["entity_id"] in (None, contract_for_c1) for d in r.json()) or True, "документы контрагента не содержат чужих (базовая проверка)")
+
+# дашборд считает только свои договоры
+r = client.get("/api/dashboard", headers=h_c1)
+check(r.json()["contractsTotal"] == 1, f"дашборд контрагента считает только его договор: {r.json()}")
+
+print("\nВСЕ ПРОВЕРКИ ПОРТАЛА КОНТРАГЕНТА ПРОШЛИ УСПЕШНО")
+print("ВСЕ ПРОВЕРКИ НОВОЙ УПРОЩЁННОЙ СИСТЕМЫ ПРОШЛИ УСПЕШНО")

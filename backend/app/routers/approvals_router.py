@@ -36,6 +36,8 @@ def my_approvals(db: Session = Depends(get_db), user=Depends(get_current_user)):
 
 @router.post("/decide")
 def decide(data: schemas.DecisionIn, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if user.role == "Контрагент":
+        raise HTTPException(403, "Контрагенту недоступно согласование.")
     if data.decision not in (wf.STATUS_APPROVED, wf.STATUS_REJECTED):
         raise HTTPException(400, "Решение должно быть 'Согласовано' или 'Отклонено'.")
     try:

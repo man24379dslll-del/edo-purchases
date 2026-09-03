@@ -39,6 +39,11 @@ create table contractors (
 );
 create index idx_contractors_inn on contractors(inn);
 
+-- Логин для портала контрагента — заполняется только для role='Контрагент'.
+-- Добавляем через ALTER, а не сразу в CREATE TABLE users, т.к. на момент
+-- создания users таблицы contractors ещё не существует.
+alter table users add column contractor_id text references contractors(id);
+
 -- ─── ДОГОВОРЫ ───
 create table contracts (
   id                text primary key,

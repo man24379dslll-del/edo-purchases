@@ -16,7 +16,8 @@ def login(data: schemas.LoginIn, db: Session = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Пользователь деактивирован.")
     token = create_access_token(user.email, user.role)
-    return schemas.TokenOut(access_token=token, email=user.email, fio=user.fio, role=user.role)
+    return schemas.TokenOut(access_token=token, email=user.email, fio=user.fio, role=user.role,
+                             contractor_id=user.contractor_id)
 
 
 @router.get("/me", response_model=schemas.UserOut)

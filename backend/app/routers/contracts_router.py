@@ -18,7 +18,10 @@ def list_contracts(
     date_from: Optional[str] = None, date_to: Optional[str] = None,
 ):
     query = db.query(models.Contract)
-    if user.role not in ("Директор", "Админ", "Юрист", "Бухгалтер"):
+    if user.role == "Контрагент":
+        # Портал контрагента: видит только договоры, где он сам является контрагентом.
+        query = query.filter(models.Contract.contractor_id == user.contractor_id)
+    elif user.role not in ("Директор", "Админ", "Юрист", "Бухгалтер"):
         query = query.filter(models.Contract.initiator_email == user.email)
     if q:
         like = f"%{q}%"
@@ -43,10 +46,12 @@ def get_doc_types():
 
 
 @router.get("/{contract_id}")
-def get_contract(contract_id: str, db: Session = Depends(get_db), _=Depends(get_current_user)):
+def get_contract(contract_id: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
     c = db.query(models.Contract).filter(models.Contract.id == contract_id).first()
     if not c:
         raise HTTPException(404, "Договор не найден.")
+    if user.role == "Контрагент" and c.contractor_id != user.contractor_id:
+        raise HTTPException(404, "Договор не найден.")  # не 403 — не палим сам факт существования чужого id
     trail = wf.get_approval_trail(db, contract_id)
     docs = db.query(models.Document).filter(
         models.Document.entity_type == "contract", models.Document.entity_id == contract_id,
@@ -64,6 +69,8 @@ def get_contract(contract_id: str, db: Session = Depends(get_db), _=Depends(get_
 
 @router.post("")
 def create_contract(data: schemas.ContractCreateIn, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if user.role == "Контрагент":
+        raise HTTPException(403, "Контрагенту недоступно создание договоров.")
     contractor = db.query(models.Contractor).filter(models.Contractor.name == data.contractor_name).first()
     if not contractor:
         contractor = models.Contractor(
@@ -105,6 +112,8 @@ def create_contract(data: schemas.ContractCreateIn, db: Session = Depends(get_db
 
 @router.delete("/{contract_id}")
 def delete_contract(contract_id: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if user.role == "Контрагент":
+        raise HTTPException(403, "Контрагенту недоступно удаление договоров.")
     contract = db.query(models.Contract).filter(models.Contract.id == contract_id).with_for_update().first()
     if not contract:
         raise HTTPException(404, "Договор не найден.")
@@ -124,6 +133,8 @@ def attach_document(contract_id: str, data: schemas.AttachDocumentIn, db: Sessio
     Прикрепляет уже загруженный файл (см. POST /api/files/upload) к договору —
     доп. соглашение, приложение, скан подписанного экземпляра и т.д.
     """
+    if user.role == "Контрагент":
+        raise HTTPException(403, "Контрагенту недоступно добавление документов.")
     contract = db.query(models.Contract).filter(models.Contract.id == contract_id).first()
     if not contract:
         raise HTTPException(404, "Договор не найден.")

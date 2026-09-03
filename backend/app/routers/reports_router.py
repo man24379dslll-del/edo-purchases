@@ -1,6 +1,6 @@
 import io
 from datetime import datetime
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
@@ -21,7 +21,9 @@ HEADER_FONT = Font(color="FFFFFF", bold=True)
 @router.get("/dashboard")
 def dashboard(db: Session = Depends(get_db), user=Depends(get_current_user)):
     query = db.query(models.Contract)
-    if user.role not in ("Директор", "Админ", "Юрист", "Бухгалтер"):
+    if user.role == "Контрагент":
+        query = query.filter(models.Contract.contractor_id == user.contractor_id)
+    elif user.role not in ("Директор", "Админ", "Юрист", "Бухгалтер"):
         query = query.filter(models.Contract.initiator_email == user.email)
     contracts = query.all()
     my_pending = wf.pending_for_role(db, user.role)
@@ -36,7 +38,11 @@ def dashboard(db: Session = Depends(get_db), user=Depends(get_current_user)):
 
 
 @router.get("/log/{entity_id}")
-def get_log(entity_id: str, db: Session = Depends(get_db), _=Depends(get_current_user)):
+def get_log(entity_id: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if user.role == "Контрагент":
+        contract = db.query(models.Contract).filter(models.Contract.id == entity_id).first()
+        if not contract or contract.contractor_id != user.contractor_id:
+            raise HTTPException(404, "Не найдено.")
     rows = db.query(models.LogEntry).filter(models.LogEntry.entity_id == entity_id) \
         .order_by(models.LogEntry.timestamp.asc()).all()
     return [{"date": r.timestamp, "user": r.user_email, "role": r.role,
@@ -46,7 +52,9 @@ def get_log(entity_id: str, db: Session = Depends(get_db), _=Depends(get_current
 @router.get("/export/contracts.xlsx")
 def export_contracts(db: Session = Depends(get_db), user=Depends(get_current_user)):
     query = db.query(models.Contract)
-    if user.role not in ("Директор", "Админ", "Юрист", "Бухгалтер"):
+    if user.role == "Контрагент":
+        query = query.filter(models.Contract.contractor_id == user.contractor_id)
+    elif user.role not in ("Директор", "Админ", "Юрист", "Бухгалтер"):
         query = query.filter(models.Contract.initiator_email == user.email)
     rows = query.order_by(models.Contract.created_at.desc()).all()
 

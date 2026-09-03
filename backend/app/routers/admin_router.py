@@ -22,8 +22,17 @@ def add_user(data: schemas.AddUserIn, db: Session = Depends(get_db), user=Depend
         raise HTTPException(400, f"Неизвестная роль: {data.role}")
     if db.query(models.User).filter(models.User.email == data.email).first():
         raise HTTPException(400, "Пользователь с таким email уже существует.")
+    contractor_id = None
+    if data.role == "Контрагент":
+        if not data.contractor_id:
+            raise HTTPException(400, "Для роли «Контрагент» нужно выбрать контрагента.")
+        contractor = db.query(models.Contractor).filter(models.Contractor.id == data.contractor_id).first()
+        if not contractor:
+            raise HTTPException(404, "Контрагент не найден.")
+        contractor_id = contractor.id
     pwd = data.password or "changeme123"
-    new_user = models.User(email=data.email, fio=data.fio, role=data.role, password_hash=hash_password(pwd))
+    new_user = models.User(email=data.email, fio=data.fio, role=data.role, password_hash=hash_password(pwd),
+                            contractor_id=contractor_id)
     db.add(new_user)
     add_log(db, user.email, "Директор", "Добавил пользователя", "user", data.email, data.role)
     db.commit()
@@ -34,6 +43,9 @@ def add_user(data: schemas.AddUserIn, db: Session = Depends(get_db), user=Depend
 def update_role(target_email: str, new_role: str, old_role: str, db: Session = Depends(get_db), user=Depends(director_only)):
     if new_role not in ALL_ROLES:
         raise HTTPException(400, f"Неизвестная роль: {new_role}")
+    if new_role == "Контрагент":
+        raise HTTPException(400, "Роль «Контрагент» нельзя назначить так — удалите пользователя и создайте заново "
+                                  "через форму добавления, указав контрагента.")
     target = db.query(models.User).filter(models.User.email == target_email, models.User.role == old_role).first()
     if not target:
         raise HTTPException(404, "Пользователь не найден.")

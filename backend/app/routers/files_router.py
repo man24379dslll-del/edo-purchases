@@ -55,6 +55,8 @@ def _safe_join(filename: str) -> str:
 @router.post("/upload")
 async def upload_file(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db),
                        user=Depends(get_current_user)):
+    if user.role == "Контрагент":
+        raise HTTPException(403, "Контрагенту недоступна загрузка файлов.")
     _ensure_upload_dir()
 
     original_name = file.filename or "file"
@@ -103,10 +105,15 @@ def download_file(filename: str):
 @documents_router.get("", response_model=list[schemas.DocumentOut])
 def list_documents(
     q: Optional[str] = None, entity_type: Optional[str] = None,
-    db: Session = Depends(get_db), _=Depends(get_current_user),
+    db: Session = Depends(get_db), user=Depends(get_current_user),
 ):
     """Хранилище документов: поиск по имени файла, кто загрузил, к чему привязан."""
     query = db.query(models.Document)
+    if user.role == "Контрагент":
+        # Портал контрагента: только документы, привязанные к его же договорам.
+        my_contract_ids = [c.id for c in db.query(models.Contract.id).filter(
+            models.Contract.contractor_id == user.contractor_id).all()]
+        query = query.filter(models.Document.entity_id.in_(my_contract_ids))
     if q:
         like = f"%{q}%"
         query = query.filter(or_(
@@ -130,6 +137,8 @@ def delete_document(doc_id: str, db: Session = Depends(get_db), user=Depends(get
     doc = db.query(models.Document).filter(models.Document.id == doc_id).first()
     if not doc:
         raise HTTPException(404, "Документ не найден.")
+    if user.role == "Контрагент":
+        raise HTTPException(403, "Контрагенту недоступно удаление документов.")
 
     allowed = user.role in ("Директор", "Админ") or user.email == doc.uploaded_by
     if not allowed and doc.entity_id:

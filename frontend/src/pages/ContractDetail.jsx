@@ -205,7 +205,9 @@ function DocumentsPanel({ contractId, documents, onChange }) {
       )}
 
       {!showAdd ? (
-        <button className="btn btn-ghost btn-xs" onClick={() => setShowAdd(true)}>+ Добавить документ</button>
+        user.role !== "Контрагент" && (
+          <button className="btn btn-ghost btn-xs" onClick={() => setShowAdd(true)}>+ Добавить документ</button>
+        )
       ) : (
         <div className="card" style={{ padding: 16, boxShadow: "none", border: "1px dashed var(--border-s)" }}>
           <div className="field">

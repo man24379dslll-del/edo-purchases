@@ -54,7 +54,9 @@ export default function Contracts() {
       <FilterBar q={q} onQ={setQ} status={status} onStatus={setStatus} statuses={STATUSES} onExport={exportXlsx} />
 
       <div className="top-actions" style={{ marginBottom: 16, justifyContent: "flex-end" }}>
-        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ Новый / Доп. соглашение</button>
+        {user.role !== "Контрагент" && (
+          <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ Новый / Доп. соглашение</button>
+        )}
       </div>
 
       <div className="card">
