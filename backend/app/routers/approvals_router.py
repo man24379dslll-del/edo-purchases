@@ -22,13 +22,13 @@ def my_approvals(db: Session = Depends(get_db), user=Depends(get_current_user)):
             "subject": c.subject,
             "contractorName": c.contractor_name,
             "pricePerUnit": float(c.price_per_unit or 0),
+            "amount": float(c.amount) if c.amount is not None else None,
+            "category": c.category,
+            "contractType": c.contract_type,
+            "approvalTier": c.approval_tier,
             "createdAt": c.created_at,
             "initiatorFio": c.initiator_fio,
             "stage": a.stage,
-            # true, если это финальная подпись Директора (после Юриста и Бухгалтера) —
-            # чтобы фронтенд не спрашивал "стандартный или нет" на этом этапе.
-            "isDirectorFinal": a.stage == wf.STAGE_DIRECTOR_FINAL,
-            "isDirectorReview": a.stage == wf.STAGE_DIRECTOR_REVIEW,
         })
     result.sort(key=lambda r: r["createdAt"])
     return result
@@ -41,8 +41,7 @@ def decide(data: schemas.DecisionIn, db: Session = Depends(get_db), user=Depends
     if data.decision not in (wf.STATUS_APPROVED, wf.STATUS_REJECTED):
         raise HTTPException(400, "Решение должно быть 'Согласовано' или 'Отклонено'.")
     try:
-        result = wf.decide(db, data.contract_id, user.role, user.email,
-                            data.decision, data.comment or "", standard=data.standard)
+        result = wf.decide(db, data.contract_id, user.role, user.email, data.decision, data.comment or "")
     except ValueError as e:
         raise HTTPException(400, str(e))
     db.commit()

@@ -45,6 +45,11 @@ def get_doc_types():
     return wf.DOC_TYPES
 
 
+@router.get("/categories")
+def get_categories():
+    return {"categories": wf.CATEGORIES, "types": wf.CONTRACT_TYPES}
+
+
 @router.get("/{contract_id}")
 def get_contract(contract_id: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
     c = db.query(models.Contract).filter(models.Contract.id == contract_id).first()
@@ -71,6 +76,14 @@ def get_contract(contract_id: str, db: Session = Depends(get_db), user=Depends(g
 def create_contract(data: schemas.ContractCreateIn, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if user.role == "Контрагент":
         raise HTTPException(403, "Контрагенту недоступно создание договоров.")
+    if data.category not in wf.CATEGORIES:
+        raise HTTPException(400, f"Неизвестная категория. Допустимые: {', '.join(wf.CATEGORIES)}")
+    if data.contract_type not in wf.CONTRACT_TYPES:
+        raise HTTPException(400, f"Неизвестный тип договора. Допустимые: {', '.join(wf.CONTRACT_TYPES)}")
+    if data.contract_type == "Разовая закупка" and data.amount is None:
+        raise HTTPException(400, "Для разовой закупки укажите сумму договора — она нужна, "
+                                  "чтобы определить уровень согласования.")
+
     contractor = db.query(models.Contractor).filter(models.Contractor.name == data.contractor_name).first()
     if not contractor:
         contractor = models.Contractor(
@@ -81,6 +94,8 @@ def create_contract(data: schemas.ContractCreateIn, db: Session = Depends(get_db
     legal_entity = None
     if data.legal_entity_id:
         legal_entity = db.query(models.LegalEntity).filter(models.LegalEntity.id == data.legal_entity_id).first()
+
+    tier = wf.determine_tier(data.category, data.contract_type, data.amount)
 
     contract_id = wf.gen_id(db, "ДОГ")
     contract = models.Contract(
@@ -95,6 +110,10 @@ def create_contract(data: schemas.ContractCreateIn, db: Session = Depends(get_db
         subject=data.subject,
         contract_number=data.contract_number,
         price_per_unit=data.price_per_unit,
+        amount=data.amount,
+        category=data.category,
+        contract_type=data.contract_type,
+        approval_tier=tier,
         status=wf.STATUS_PENDING,
         valid_until=data.valid_until,
         comment=data.comment,
@@ -104,10 +123,11 @@ def create_contract(data: schemas.ContractCreateIn, db: Session = Depends(get_db
     db.flush()
 
     wf.link_document(db, data.file_url, contract_id, data.subject)
-    wf.start_approval(db, contract_id)
-    wf.add_log(db, user.email, user.role, "Создал договор", "contract", contract_id, data.subject)
+    wf.start_approval(db, contract_id, tier)
+    wf.add_log(db, user.email, user.role, f"Создал договор (уровень согласования {tier})",
+               "contract", contract_id, data.subject)
     db.commit()
-    return {"id": contract_id}
+    return {"id": contract_id, "approval_tier": tier}
 
 
 @router.delete("/{contract_id}")

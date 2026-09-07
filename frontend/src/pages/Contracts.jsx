@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../components/Toast";
@@ -16,10 +16,22 @@ export default function Contracts() {
   const { user } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [list, setList] = useState(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [q, setQ] = useState("");
+  const [showCreate, setShowCreate] = useState(searchParams.get("create") === "1");
+  const [q, setQ] = useState(searchParams.get("q") || "");
   const [status, setStatus] = useState("");
+
+  // Верхняя панель (кнопка "+ Новый договор" / поиск) может открыть эту страницу
+  // с query-параметрами из любого другого раздела — подхватываем их при заходе.
+  useEffect(() => {
+    const qParam = searchParams.get("q");
+    const createParam = searchParams.get("create");
+    if (qParam) setQ(qParam);
+    if (createParam === "1") setShowCreate(true);
+    if (qParam || createParam) setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function load() {
     api.contracts({ q, status }).then(setList).catch(() => setList([]));
@@ -139,21 +151,37 @@ function CreateModal({ onClose, onCreatedContract, onAttached }) {
 function NewContractForm({ onClose, onCreated }) {
   const toast = useToast();
   const [options, setOptions] = useState(null);
+  const [meta, setMeta] = useState({ categories: [], types: [] });
   const [form, setForm] = useState({
     contractor_name: "", contractor_inn: "", legal_entity_id: "", subject: "",
-    contract_number: "", price_per_unit: "", valid_until: "", comment: "", file_url: "",
+    contract_number: "", price_per_unit: "", amount: "", category: "Прочее",
+    contract_type: "Системный", valid_until: "", comment: "", file_url: "",
   });
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => { api.formOptions().then(setOptions); }, []);
+  useEffect(() => {
+    api.formOptions().then(setOptions);
+    api.contractCategories().then(setMeta);
+  }, []);
+
+  const TIER1_CATEGORIES = ["Товар/производство", "Аренда имущества", "Специализированные услуги и схемы"];
+  const amountNum = Number(form.amount);
+  let predictedTier = 2;
+  if (TIER1_CATEGORIES.includes(form.category)) predictedTier = 1;
+  else if (form.contract_type === "Разовая закупка" && form.amount && amountNum > 500000) predictedTier = 1;
 
   async function submit() {
     if (!form.contractor_name || !form.subject) { toast("Заполните контрагента и предмет договора", true); return; }
+    if (form.contract_type === "Разовая закупка" && !form.amount) {
+      toast("Для разовой закупки укажите сумму договора — по ней определяется уровень согласования", true);
+      return;
+    }
     setBusy(true);
     try {
       await api.createContract({
         ...form,
         price_per_unit: Number(form.price_per_unit) || 0,
+        amount: form.amount === "" ? null : Number(form.amount),
         valid_until: form.valid_until || null,
       });
       onCreated();
@@ -193,23 +221,51 @@ function NewContractForm({ onClose, onCreated }) {
       </div>
       <div className="grid-2">
         <div className="field">
-          <label>Номер договора</label>
-          <input value={form.contract_number} onChange={(e) => setForm({ ...form, contract_number: e.target.value })} />
+          <label>Категория</label>
+          <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+            {meta.categories.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
         </div>
         <div className="field">
-          <label>Цена за единицу, ₽</label>
-          <input type="number" value={form.price_per_unit} onChange={(e) => setForm({ ...form, price_per_unit: e.target.value })} />
+          <label>Тип договора</label>
+          <select value={form.contract_type} onChange={(e) => setForm({ ...form, contract_type: e.target.value })}>
+            {meta.types.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
         </div>
       </div>
       <div className="grid-2">
         <div className="field">
+          <label>Номер договора</label>
+          <input value={form.contract_number} onChange={(e) => setForm({ ...form, contract_number: e.target.value })} />
+        </div>
+        <div className="field">
+          <label>
+            Сумма договора, ₽ {form.contract_type === "Разовая закупка" ? "*" : "(необязательно)"}
+          </label>
+          <input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })}
+            placeholder={form.contract_type !== "Разовая закупка" ? "можно указать позже" : ""} />
+        </div>
+      </div>
+      <div style={{
+        fontSize: 12, padding: "8px 12px", borderRadius: 8, marginBottom: 14,
+        background: predictedTier === 1 ? "var(--red-bg)" : "var(--green-bg)",
+        color: predictedTier === 1 ? "var(--red)" : "var(--green)",
+      }}>
+        Маршрут: уровень {predictedTier} — {predictedTier === 1 ? "Юрист → Бухгалтер → Директор" : "только Директор"}
+      </div>
+      <div className="grid-2">
+        <div className="field">
+          <label>Цена за единицу, ₽</label>
+          <input type="number" value={form.price_per_unit} onChange={(e) => setForm({ ...form, price_per_unit: e.target.value })} />
+        </div>
+        <div className="field">
           <label>Действует до</label>
           <input type="date" value={form.valid_until} onChange={(e) => setForm({ ...form, valid_until: e.target.value })} />
         </div>
-        <div className="field">
-          <label>Файл договора</label>
-          <FileUpload value={form.file_url} onChange={(url) => setForm({ ...form, file_url: url })} />
-        </div>
+      </div>
+      <div className="field">
+        <label>Файл договора</label>
+        <FileUpload value={form.file_url} onChange={(url) => setForm({ ...form, file_url: url })} />
       </div>
       <div className="field">
         <label>Комментарий</label>

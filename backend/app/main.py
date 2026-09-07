@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers import (
     auth_router, admin_router, contractors_router,
-    contracts_router, approvals_router, reports_router, files_router,
+    contracts_router, approvals_router, reports_router, files_router, payments_router,
 )
 
 app = FastAPI(title="ЭДО Договоров API", version="2.0.0")
@@ -26,6 +26,7 @@ app.include_router(approvals_router.router)
 app.include_router(reports_router.router)
 app.include_router(files_router.router)
 app.include_router(files_router.documents_router)
+app.include_router(payments_router.router)
 
 
 @app.on_event("startup")

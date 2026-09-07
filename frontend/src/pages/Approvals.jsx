@@ -16,13 +16,12 @@ export default function Approvals() {
   }
   useEffect(load, []);
 
-  async function decide(row, decision, standard) {
+  async function decide(row, decision) {
     setBusy({ ...busy, [row.contractId]: true });
     try {
       await api.decide({
         contract_id: row.contractId,
         decision,
-        standard,
         comment: comment[row.contractId] || "",
       });
       toast(decision === "Согласовано" ? "✓ Согласовано" : "✓ Отклонено");
@@ -49,10 +48,11 @@ export default function Approvals() {
                 <Link to={`/contracts/${r.contractId}`} style={{ color: "inherit", textDecoration: "none" }}>
                   Договор {r.contractId}
                 </Link>
-                {r.isDirectorFinal && <span className="badge b-p" style={{ marginLeft: 8 }}>Финальная подпись</span>}
+                <span className="badge b-p" style={{ marginLeft: 8 }}>Уровень {r.approvalTier}</span>
               </div>
               <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 2 }}>
-                {r.subject} · {r.contractorName} · {fmtMoney(r.pricePerUnit)} ₽ за ед. ·
+                {r.subject} · {r.contractorName} · {r.category} · {r.contractType}
+                {r.amount != null && <> · {fmtMoney(r.amount)} ₽</>} ·
                 инициатор {r.initiatorFio} · {fmtDate(r.createdAt)}
               </div>
             </div>
@@ -66,34 +66,16 @@ export default function Approvals() {
                 onChange={(e) => setComment({ ...comment, [r.contractId]: e.target.value })}
               />
             </div>
-
-            {r.isDirectorReview ? (
-              <div className="top-actions">
-                <button className="btn btn-approve" disabled={busy[r.contractId]}
-                  onClick={() => decide(r, "Согласовано", true)}>
-                  ✓ Стандартный — согласовать
-                </button>
-                <button className="btn btn-primary" disabled={busy[r.contractId]}
-                  onClick={() => decide(r, "Согласовано", false)}>
-                  → Отправить Юристу и Бухгалтеру
-                </button>
-                <button className="btn btn-danger" disabled={busy[r.contractId]}
-                  onClick={() => decide(r, "Отклонено")}>
-                  ✕ Отклонить
-                </button>
-              </div>
-            ) : (
-              <div className="top-actions">
-                <button className="btn btn-approve" disabled={busy[r.contractId]}
-                  onClick={() => decide(r, "Согласовано")}>
-                  ✓ Согласовать
-                </button>
-                <button className="btn btn-danger" disabled={busy[r.contractId]}
-                  onClick={() => decide(r, "Отклонено")}>
-                  ✕ Отклонить
-                </button>
-              </div>
-            )}
+            <div className="top-actions">
+              <button className="btn btn-approve" disabled={busy[r.contractId]}
+                onClick={() => decide(r, "Согласовано")}>
+                ✓ Согласовать
+              </button>
+              <button className="btn btn-danger" disabled={busy[r.contractId]}
+                onClick={() => decide(r, "Отклонено")}>
+                ✕ Отклонить
+              </button>
+            </div>
           </div>
         </div>
       ))}

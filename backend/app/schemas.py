@@ -65,6 +65,9 @@ class ContractCreateIn(BaseModel):
     subject: str
     contract_number: Optional[str] = None
     price_per_unit: Decimal = Decimal("0")
+    amount: Optional[Decimal] = None  # сумма договора — может быть не известна заранее
+    category: str = "Прочее"
+    contract_type: str = "Системный"
     valid_until: Optional[date] = None
     comment: Optional[str] = None
     file_url: Optional[str] = None
@@ -83,8 +86,11 @@ class ContractOut(BaseModel):
     subject: str
     contract_number: Optional[str] = None
     price_per_unit: float
+    amount: Optional[float] = None
+    category: str
+    contract_type: str
+    approval_tier: Optional[int] = None
     status: str
-    is_standard: Optional[bool] = None
     valid_until: Optional[date] = None
     comment: Optional[str] = None
     file_url: Optional[str] = None
@@ -97,9 +103,6 @@ class DecisionIn(BaseModel):
     contract_id: str
     decision: str            # Согласовано | Отклонено
     comment: Optional[str] = None
-    # Заполняется только Директором на первом этапе рассмотрения:
-    # True = "Стандартный" (сразу финал), False = "Отправить Юристу и Бухгалтеру".
-    standard: Optional[bool] = None
 
 
 class AttachDocumentIn(BaseModel):
@@ -119,6 +122,31 @@ class DocumentOut(BaseModel):
     entity_id: Optional[str] = None
     entity_subject: Optional[str] = None
     doc_type: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class PaymentScheduleItemIn(BaseModel):
+    contract_id: str
+    due_date: date
+    amount: Decimal
+    comment: Optional[str] = None
+
+
+class PaymentScheduleItemOut(BaseModel):
+    id: str
+    contract_id: str
+    due_date: date
+    amount: float
+    status: str
+    comment: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: datetime
+    paid_at: Optional[datetime] = None
+    # для удобного отображения в календаре без второго запроса за договором:
+    contract_subject: Optional[str] = None
+    contractor_name: Optional[str] = None
 
     class Config:
         from_attributes = True

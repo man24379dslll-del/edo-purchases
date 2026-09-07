@@ -1,16 +1,22 @@
 """
-Маршрут согласования договора — динамический (зависит от решения Директора):
+Маршрут согласования договора — определяется АВТОМАТИЧЕСКИ при создании
+(по категории, типу и сумме), а не решением Директора по ходу дела:
 
-  Инициатор создаёт → Директор рассматривает.
-    ├─ Директор жмёт "Стандартный" → договор сразу Согласован (финал).
-    └─ Директор жмёт "Отправить Юристу и Бухгалтеру" →
-         Юрист согласовывает → Бухгалтер согласовывает →
-         Директор ставит финальную подпись → Согласован.
+  Уровень 1 (Юрист → Бухгалтер → Директор, по очереди, все трое):
+    - категория "Товар/производство", "Аренда имущества" или
+      "Специализированные услуги и схемы" — независимо от суммы;
+    - ЛИБО разовая закупка на сумму свыше 500 000 ₽.
+
+  Уровень 2 (только Директор):
+    - категория "Прочие услуги", "Ремонтные работы", "Прочее" — независимо от суммы;
+    - ЛИБО разовая закупка на сумму от 100 000 до 500 000 ₽ (и ниже 100 000 — тоже,
+      как безопасный минимум, если сумма не уточнена).
 
   Отклонить может любой согласующий на своём активном этапе — договор
   сразу переходит в "Отклонено", маршрут дальше не идёт.
 """
 from datetime import datetime, timezone
+from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from app import models
@@ -19,10 +25,34 @@ STATUS_PENDING = "На согласовании"
 STATUS_APPROVED = "Согласовано"
 STATUS_REJECTED = "Отклонено"
 
-STAGE_DIRECTOR_REVIEW = 0
-STAGE_LAWYER = 1
-STAGE_ACCOUNTANT = 2
-STAGE_DIRECTOR_FINAL = 3
+CATEGORIES = [
+    "Товар/производство", "Аренда имущества", "Специализированные услуги и схемы",
+    "Прочие услуги", "Ремонтные работы", "Прочее",
+]
+CONTRACT_TYPES = ["Системный", "Разовая закупка"]
+
+TIER1_CATEGORIES = {"Товар/производство", "Аренда имущества", "Специализированные услуги и схемы"}
+ONE_OFF_TIER1_THRESHOLD = Decimal("500000")
+ONE_OFF_TIER2_MIN = Decimal("100000")
+
+TIER1_CHAIN = ["Юрист", "Бухгалтер", "Директор"]
+TIER2_CHAIN = ["Директор"]
+
+
+def determine_tier(category: str, contract_type: str, amount) -> int:
+    """
+    Возвращает 1 или 2 — уровень согласования. amount может быть None
+    (для длительных договоров без известной итоговой цены на момент создания).
+    """
+    if category in TIER1_CATEGORIES:
+        return 1
+    if contract_type == "Разовая закупка" and amount is not None and amount > ONE_OFF_TIER1_THRESHOLD:
+        return 1
+    return 2
+
+
+def chain_for_tier(tier: int) -> list[str]:
+    return TIER1_CHAIN if tier == 1 else TIER2_CHAIN
 
 
 def gen_id(db: Session, prefix: str) -> str:
@@ -50,13 +80,15 @@ def add_log(db: Session, email: str, role: str, action: str, entity_type: str, e
     ))
 
 
-def start_approval(db: Session, contract_id: str):
-    """Создаёт первый этап (Директор рассматривает) сразу активным."""
-    db.add(models.Approval(
-        approval_id=gen_id(db, "SOG"), contract_id=contract_id,
-        stage=STAGE_DIRECTOR_REVIEW, approver_role="Директор",
-        decision="Ожидает", state="active",
-    ))
+def start_approval(db: Session, contract_id: str, tier: int):
+    """Создаёт всю цепочку согласования сразу (по уровню), первый этап — активный."""
+    chain = chain_for_tier(tier)
+    for stage, role in enumerate(chain):
+        db.add(models.Approval(
+            approval_id=gen_id(db, "SOG"), contract_id=contract_id,
+            stage=stage, approver_role=role, decision="Ожидает",
+            state="active" if stage == 0 else "pending",
+        ))
     db.flush()
 
 
@@ -73,12 +105,11 @@ def pending_for_role(db: Session, role: str):
     ).all()
 
 
-def decide(db: Session, contract_id: str, role: str, email: str, decision: str,
-           comment: str = "", standard: bool = None):
+def decide(db: Session, contract_id: str, role: str, email: str, decision: str, comment: str = ""):
     """
-    Обрабатывает решение по договору. Бросает ValueError с понятным
-    сообщением при некорректном запросе (нет активного этапа для роли,
-    не указан standard на этапе Директора и т.п.).
+    Обрабатывает решение по договору: продвигает по заранее построенной
+    цепочке (см. start_approval). Бросает ValueError с понятным сообщением,
+    если для роли нет активного этапа.
     """
     contract = db.query(models.Contract).filter(models.Contract.id == contract_id).with_for_update().first()
     if not contract:
@@ -107,53 +138,21 @@ def decide(db: Session, contract_id: str, role: str, email: str, decision: str,
     if decision != STATUS_APPROVED:
         raise ValueError("Решение должно быть 'Согласовано' или 'Отклонено'.")
 
-    # ── Этап 0: решение Директора при первом рассмотрении ──
-    if approval.stage == STAGE_DIRECTOR_REVIEW:
-        if standard is None:
-            raise ValueError("Укажите: 'Стандартный' договор, или отправить Юристу и Бухгалтеру.")
-        contract.is_standard = standard
-        if standard:
-            contract.status = STATUS_APPROVED
-            add_log(db, email, role, "Согласовал как стандартный", "contract", contract_id, comment)
-            db.flush()
-            return {"status": STATUS_APPROVED, "finished": True}
-        else:
-            db.add(models.Approval(
-                approval_id=gen_id(db, "SOG"), contract_id=contract_id,
-                stage=STAGE_LAWYER, approver_role="Юрист", decision="Ожидает", state="active",
-            ))
-            add_log(db, email, role, "Отправил на Юриста и Бухгалтера", "contract", contract_id, comment)
-            db.flush()
-            return {"status": STATUS_PENDING, "finished": False}
+    add_log(db, email, role, "Согласовал", "contract", contract_id, comment)
 
-    # ── Этап 1: Юрист согласовал — открываем Бухгалтера ──
-    if approval.stage == STAGE_LAWYER:
-        db.add(models.Approval(
-            approval_id=gen_id(db, "SOG"), contract_id=contract_id,
-            stage=STAGE_ACCOUNTANT, approver_role="Бухгалтер", decision="Ожидает", state="active",
-        ))
-        add_log(db, email, role, "Согласовал", "contract", contract_id, comment)
-        db.flush()
-        return {"status": STATUS_PENDING, "finished": False}
+    next_stage = db.query(models.Approval).filter(
+        models.Approval.contract_id == contract_id,
+        models.Approval.stage == approval.stage + 1,
+    ).first()
 
-    # ── Этап 2: Бухгалтер согласовал — возвращаем Директору на финальную подпись ──
-    if approval.stage == STAGE_ACCOUNTANT:
-        db.add(models.Approval(
-            approval_id=gen_id(db, "SOG"), contract_id=contract_id,
-            stage=STAGE_DIRECTOR_FINAL, approver_role="Директор", decision="Ожидает", state="active",
-        ))
-        add_log(db, email, role, "Согласовал", "contract", contract_id, comment)
-        db.flush()
-        return {"status": STATUS_PENDING, "finished": False}
-
-    # ── Этап 3: финальная подпись Директора ──
-    if approval.stage == STAGE_DIRECTOR_FINAL:
+    if not next_stage:
         contract.status = STATUS_APPROVED
-        add_log(db, email, role, "Финальная подпись", "contract", contract_id, comment)
         db.flush()
         return {"status": STATUS_APPROVED, "finished": True}
 
-    raise ValueError("Некорректный этап согласования.")
+    next_stage.state = "active"
+    db.flush()
+    return {"status": STATUS_PENDING, "finished": False}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -179,6 +178,8 @@ def assert_deletable(db: Session, contract, user_email: str, user_role: str):
 
 def delete_contract(db: Session, contract, user_email: str, user_role: str):
     db.query(models.Approval).filter(models.Approval.contract_id == contract.id).delete(synchronize_session=False)
+    db.query(models.PaymentScheduleItem).filter(
+        models.PaymentScheduleItem.contract_id == contract.id).delete(synchronize_session=False)
     add_log(db, user_email, user_role, "Удалил", "contract", contract.id, contract.subject)
     db.delete(contract)
 

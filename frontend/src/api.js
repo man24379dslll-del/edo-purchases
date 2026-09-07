@@ -94,8 +94,14 @@ export const api = {
   createContract: (payload) => request("/api/contracts", { method: "POST", body: payload }),
   deleteContract: (id) => request(`/api/contracts/${id}`, { method: "DELETE" }),
   docTypes: () => request("/api/contracts/doc-types"),
+  contractCategories: () => request("/api/contracts/categories"),
   attachDocument: (contractId, payload) => request(`/api/contracts/${contractId}/documents`, { method: "POST", body: payload }),
   removeDocument: (docId) => request(`/api/documents/${docId}`, { method: "DELETE" }),
+
+  payments: (filters) => request(`/api/payments${qs(filters)}`),
+  createPayment: (payload) => request("/api/payments", { method: "POST", body: payload }),
+  markPaymentPaid: (id) => request(`/api/payments/${id}/paid`, { method: "PUT" }),
+  removePayment: (id) => request(`/api/payments/${id}`, { method: "DELETE" }),
   exportContracts: () => downloadFile("/api/export/contracts.xlsx", "contracts.xlsx"),
 
   contractors: (q) => request(`/api/contractors${qs({ q })}`),

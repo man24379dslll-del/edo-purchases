@@ -62,8 +62,8 @@ def export_contracts(db: Session = Depends(get_db), user=Depends(get_current_use
     ws = wb.active
     ws.title = "Договоры"
     headers = ["№", "Дата", "Инициатор", "Контрагент", "ИНН", "Юрлицо",
-               "Предмет", "Номер договора", "Цена за единицу, ₽", "Статус",
-               "Стандартный", "Действует до", "Комментарий"]
+               "Предмет", "Номер договора", "Категория", "Тип", "Цена за единицу, ₽", "Сумма договора, ₽",
+               "Уровень согласования", "Статус", "Действует до", "Комментарий"]
     ws.append(headers)
     for cell in ws[1]:
         cell.fill = HEADER_FILL
@@ -74,8 +74,9 @@ def export_contracts(db: Session = Depends(get_db), user=Depends(get_current_use
         ws.append([
             c.id, c.created_at.strftime("%d.%m.%Y %H:%M") if c.created_at else "", c.initiator_fio,
             c.contractor_name, c.contractor_inn or "", c.legal_entity_name or "",
-            c.subject, c.contract_number or "", float(c.price_per_unit or 0), c.status,
-            ("Да" if c.is_standard else "Нет") if c.is_standard is not None else "—",
+            c.subject, c.contract_number or "", c.category, c.contract_type,
+            float(c.price_per_unit or 0), float(c.amount) if c.amount is not None else "",
+            c.approval_tier or "", c.status,
             c.valid_until.strftime("%d.%m.%Y") if c.valid_until else "", c.comment or "",
         ])
     for col in ws.columns:

@@ -8,6 +8,7 @@ import Approvals from "./pages/Approvals";
 import Contracts from "./pages/Contracts";
 import ContractDetail from "./pages/ContractDetail";
 import Documents from "./pages/Documents";
+import PaymentCalendar from "./pages/PaymentCalendar";
 import Admin from "./pages/Admin";
 
 function RequireAuth({ children }) {
@@ -36,6 +37,7 @@ function AppRoutes() {
         <Route path="/contracts" element={<Contracts />} />
         <Route path="/contracts/:id" element={<ContractDetail />} />
         <Route path="/documents" element={<Documents />} />
+        <Route path="/payments" element={<PaymentCalendar />} />
         <Route path="/admin" element={
           <RequireRole roles={["Директор"]}><Admin /></RequireRole>
         } />

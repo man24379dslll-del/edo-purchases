@@ -29,15 +29,14 @@ export default function ContractDetail() {
 
   const { contract, approvals, documents } = data;
   const myStage = approvals.find((a) => a.state === "active" && a.role === user.role);
-  const isDirectorReview = myStage && myStage.stage === 0;
   const canDelete = contract.status === "На согласовании" &&
     (user.email === contract.initiator_email || user.role === "Админ") &&
     !approvals.some((a) => a.decision !== "Ожидает");
 
-  async function decide(decision, standard) {
+  async function decide(decision) {
     setBusy(true);
     try {
-      await api.decide({ contract_id: id, decision, standard, comment });
+      await api.decide({ contract_id: id, decision, comment });
       toast(decision === "Согласовано" ? "✓ Согласовано" : "✓ Отклонено");
       setComment("");
       load();
@@ -82,31 +81,15 @@ export default function ContractDetail() {
 
         {myStage && (
           <div className="card-body" style={{ background: "var(--blue-bg, #EEF2FF)", borderBottom: "1px solid var(--border)" }}>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>
-              {isDirectorReview ? "Договор ожидает вашего рассмотрения" : "Документ ожидает вашего решения"}
-            </div>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>Документ ожидает вашего решения</div>
             <div className="field">
               <label>Комментарий (необязательно)</label>
               <textarea rows={2} value={comment} onChange={(e) => setComment(e.target.value)} />
             </div>
-            {isDirectorReview ? (
-              <div className="top-actions">
-                <button className="btn btn-approve" disabled={busy} onClick={() => decide("Согласовано", true)}>
-                  ✓ Стандартный — согласовать
-                </button>
-                <button className="btn btn-primary" disabled={busy} onClick={() => decide("Согласовано", false)}>
-                  → Отправить Юристу и Бухгалтеру
-                </button>
-                <button className="btn btn-danger" disabled={busy} onClick={() => decide("Отклонено")}>
-                  ✕ Отклонить
-                </button>
-              </div>
-            ) : (
-              <div className="top-actions">
-                <button className="btn btn-approve" disabled={busy} onClick={() => decide("Согласовано")}>✓ Согласовать</button>
-                <button className="btn btn-danger" disabled={busy} onClick={() => decide("Отклонено")}>✕ Отклонить</button>
-              </div>
-            )}
+            <div className="top-actions">
+              <button className="btn btn-approve" disabled={busy} onClick={() => decide("Согласовано")}>✓ Согласовать</button>
+              <button className="btn btn-danger" disabled={busy} onClick={() => decide("Отклонено")}>✕ Отклонить</button>
+            </div>
           </div>
         )}
 
@@ -121,8 +104,11 @@ export default function ContractDetail() {
                     <div><b>Юрлицо:</b> {contract.legal_entity_name || "—"}</div>
                     <div><b>Номер договора:</b> {contract.contract_number || "—"}</div>
                     <div><b>Цена за единицу:</b> {fmtMoney(contract.price_per_unit)} ₽</div>
+                    <div><b>Категория:</b> {contract.category}</div>
+                    <div><b>Тип:</b> {contract.contract_type}</div>
+                    <div><b>Сумма договора:</b> {contract.amount != null ? `${fmtMoney(contract.amount)} ₽` : "— не указана"}</div>
+                    <div><b>Уровень согласования:</b> {contract.approval_tier}</div>
                     <div><b>Действует до:</b> {contract.valid_until || "—"}</div>
-                    <div><b>Стандартный:</b> {contract.is_standard === null ? "— (ещё не решено)" : contract.is_standard ? "Да" : "Нет"}</div>
                   </div>
                   <p style={{ marginBottom: 16 }}><b>Предмет:</b> {contract.subject}</p>
                   {contract.comment && <p style={{ marginBottom: 16 }}><b>Комментарий:</b> {contract.comment}</p>}

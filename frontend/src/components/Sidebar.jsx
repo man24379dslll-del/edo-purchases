@@ -1,16 +1,41 @@
-import { NavLink } from "react-router-dom";
+import { useState } from "react";
+import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 const NAV = [
-  { to: "/", icon: "📊", label: "Дашборд", roles: null },
-  { to: "/approvals", icon: "✅", label: "Мои согласования", roles: null, badge: true, excludeRoles: ["Контрагент"] },
-  { to: "/contracts", icon: "📄", label: "Договоры", roles: null },
-  { to: "/documents", icon: "🗂️", label: "Хранилище документов", roles: null },
-  { to: "/admin", icon: "⚙️", label: "Администрирование", roles: ["Директор", "Админ"] },
+  { type: "single", to: "/", icon: "📊", label: "Дашборд", roles: null },
+  { type: "single", to: "/approvals", icon: "✅", label: "Мои согласования", roles: null, badge: true, excludeRoles: ["Контрагент"] },
+  {
+    type: "group", key: "docs", icon: "📁", label: "Документы", roles: null,
+    children: [
+      { to: "/contracts", icon: "📄", label: "Договоры" },
+      { to: "/documents", icon: "🗂️", label: "Хранилище документов" },
+    ],
+  },
+  {
+    type: "group", key: "finance", icon: "💰", label: "Финансы", roles: ["Директор", "Бухгалтер", "Админ"],
+    children: [
+      { to: "/payments", icon: "💳", label: "Платёжный календарь" },
+    ],
+  },
+  {
+    type: "group", key: "admin", icon: "⚙️", label: "Администрирование", roles: ["Директор", "Админ"],
+    children: [
+      { to: "/admin", icon: "👥", label: "Пользователи и юрлица" },
+    ],
+  },
 ];
 
 export default function Sidebar({ pendingCount }) {
   const { user, logout } = useAuth();
+  const location = useLocation();
+
+  const visible = NAV.filter((n) =>
+    (!n.roles || n.roles.includes(user?.role)) && !(n.excludeRoles || []).includes(user?.role));
+
+  const activeGroupKey = visible.find((n) => n.type === "group" &&
+    n.children.some((c) => location.pathname.startsWith(c.to)))?.key;
+  const [openGroup, setOpenGroup] = useState(activeGroupKey || null);
 
   return (
     <aside className="sidebar">
@@ -31,13 +56,41 @@ export default function Sidebar({ pendingCount }) {
       </div>
 
       <nav className="sb-nav">
-        {NAV.filter((n) => (!n.roles || n.roles.includes(user?.role)) && !(n.excludeRoles || []).includes(user?.role)).map((n) => (
-          <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => `sb-item ${isActive ? "active" : ""}`}>
-            <span className="sb-icon">{n.icon}</span>
-            <span>{n.label}</span>
-            {n.badge && pendingCount > 0 && <span className="sb-badge">{pendingCount}</span>}
-          </NavLink>
-        ))}
+        {visible.map((n) => {
+          if (n.type === "single") {
+            return (
+              <NavLink key={n.to} to={n.to} end={n.to === "/"} className={({ isActive }) => `sb-item ${isActive ? "active" : ""}`}>
+                <span className="sb-icon">{n.icon}</span>
+                <span>{n.label}</span>
+                {n.badge && pendingCount > 0 && <span className="sb-badge">{pendingCount}</span>}
+              </NavLink>
+            );
+          }
+          const isOpen = openGroup === n.key;
+          const groupActive = n.children.some((c) => location.pathname.startsWith(c.to));
+          return (
+            <div key={n.key}>
+              <div
+                className={`sb-item sb-group-header ${groupActive ? "active" : ""}`}
+                onClick={() => setOpenGroup(isOpen ? null : n.key)}
+              >
+                <span className="sb-icon">{n.icon}</span>
+                <span>{n.label}</span>
+                <span className={`sb-chevron ${isOpen ? "open" : ""}`}>›</span>
+              </div>
+              {isOpen && (
+                <div className="sb-subnav">
+                  {n.children.map((c) => (
+                    <NavLink key={c.to} to={c.to} className={({ isActive }) => `sb-subitem ${isActive ? "active" : ""}`}>
+                      <span className="sb-icon">{c.icon}</span>
+                      <span>{c.label}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </nav>
 
       <div className="sb-bottom">

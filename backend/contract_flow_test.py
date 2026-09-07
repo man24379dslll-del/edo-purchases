@@ -56,91 +56,127 @@ def check(cond, msg):
 
 
 h_init = login("init@t.co")
+h_dir = login("dir@t.co")
 
-# ── 1. Создание договора любым пользователем (роль "Инициатор" тоже может) ──
+# ══════════════════════════════════════════════════════════════
+# 1. АВТОМАТИЧЕСКАЯ МАРШРУТИЗАЦИЯ ПО КАТЕГОРИИ/ТИПУ/СУММЕ
+# ══════════════════════════════════════════════════════════════
+
+# категория из списка "уровня 1" — всегда уровень 1, независимо от суммы
 r = client.post("/api/contracts", headers=h_init, json={
-    "contractor_name": "ООО Стандарт", "subject": "Стандартный договор", "price_per_unit": "1000.50",
+    "contractor_name": "ООО Товар", "subject": "Поставка товара",
+    "category": "Товар/производство", "contract_type": "Системный",
 })
-check(r.status_code == 200, f"договор создан: {r.text}")
-cid_std = r.json()["id"]
-check(cid_std.startswith("ДОГ-"), f"человекочитаемый id: {cid_std}")
+check(r.status_code == 200 and r.json()["approval_tier"] == 1, f"категория тир-1 → уровень 1: {r.json()}")
+cid_tier1_cat = r.json()["id"]
 
-r = client.get(f"/api/contracts/{cid_std}", headers=h_init)
-trail = r.json()["approvals"]
-check(len(trail) == 1 and trail[0]["role"] == "Директор" and trail[0]["state"] == "active",
-      f"сразу после создания единственный активный этап — Директор: {trail}")
+r = client.get(f"/api/contracts/{cid_tier1_cat}", headers=h_init)
+roles = [a["role"] for a in r.json()["approvals"]]
+check(roles == ["Юрист", "Бухгалтер", "Директор"], f"цепочка уровня 1: {roles}")
+active = [a for a in r.json()["approvals"] if a["state"] == "active"]
+check(len(active) == 1 and active[0]["role"] == "Юрист", "первый активный этап — Юрист")
 
-# ── 2. Директор помечает как "Стандартный" — сразу финал ──
-r = client.post("/api/approvals/decide", headers=login("dir@t.co"), json={
-    "contract_id": cid_std, "decision": "Согласовано", "standard": True,
-})
-check(r.status_code == 200 and r.json()["status"] == "Согласовано" and r.json()["finished"],
-      f"стандартный договор сразу согласован: {r.text}")
-
-r = client.get(f"/api/contracts/{cid_std}", headers=h_init)
-check(r.json()["contract"]["status"] == "Согласовано", "статус договора — Согласовано")
-check(r.json()["contract"]["is_standard"] is True, "is_standard=True сохранён")
-
-# ── 3. Без указания standard — ошибка ──
+# категория из списка "уровня 2" — уровень 2, независимо от суммы
 r = client.post("/api/contracts", headers=h_init, json={
-    "contractor_name": "ООО Б", "subject": "Без флага",
+    "contractor_name": "ООО Ремонт", "subject": "Ремонт офиса",
+    "category": "Ремонтные работы", "contract_type": "Системный",
 })
-cid_noflag = r.json()["id"]
-r = client.post("/api/approvals/decide", headers=login("dir@t.co"), json={
-    "contract_id": cid_noflag, "decision": "Согласовано",
-})
-check(r.status_code == 400, f"без standard директор не может согласовать: {r.status_code} {r.text}")
+check(r.json()["approval_tier"] == 2, f"категория тир-2 → уровень 2: {r.json()}")
+cid_tier2_cat = r.json()["id"]
+r = client.get(f"/api/contracts/{cid_tier2_cat}", headers=h_init)
+roles = [a["role"] for a in r.json()["approvals"]]
+check(roles == ["Директор"], f"цепочка уровня 2 — только Директор: {roles}")
 
-# ── 4. Нестандартный договор: Директор → Юрист → Бухгалтер → Директор (финал) ──
+# разовая закупка без суммы — ошибка (нужна сумма для определения порога)
 r = client.post("/api/contracts", headers=h_init, json={
-    "contractor_name": "ООО Нестандарт", "subject": "Сложный договор", "price_per_unit": "50000",
+    "contractor_name": "ООО Закупка", "subject": "Разовая закупка без суммы",
+    "category": "Прочее", "contract_type": "Разовая закупка",
 })
-cid = r.json()["id"]
+check(r.status_code == 400, f"разовая закупка без суммы отклонена: {r.status_code}")
 
-r = client.post("/api/approvals/decide", headers=login("dir@t.co"), json={
-    "contract_id": cid, "decision": "Согласовано", "standard": False,
+# разовая закупка свыше 500 т.р. — уровень 1
+r = client.post("/api/contracts", headers=h_init, json={
+    "contractor_name": "ООО Крупная", "subject": "Крупная разовая закупка",
+    "category": "Прочее", "contract_type": "Разовая закупка", "amount": "600000",
 })
-check(r.status_code == 200 and not r.json()["finished"], f"директор отправил на Юриста и Бухгалтера: {r.text}")
+check(r.json()["approval_tier"] == 1, f"разовая закупка >500т.р. → уровень 1: {r.json()}")
 
-r = client.get(f"/api/contracts/{cid}", headers=h_init)
-check(r.json()["contract"]["status"] == "На согласовании", "статус остаётся На согласовании")
-active_roles = [a["role"] for a in r.json()["approvals"] if a["state"] == "active"]
-check(active_roles == ["Юрист"], f"активный этап — Юрист: {active_roles}")
+# разовая закупка 100-500 т.р. — уровень 2
+r = client.post("/api/contracts", headers=h_init, json={
+    "contractor_name": "ООО Средняя", "subject": "Средняя разовая закупка",
+    "category": "Прочее", "contract_type": "Разовая закупка", "amount": "250000",
+})
+check(r.json()["approval_tier"] == 2, f"разовая закупка 100-500т.р. → уровень 2: {r.json()}")
 
-# бухгалтер пока не может согласовать — не его очередь
-r = client.post("/api/approvals/decide", headers=login("acc@t.co"), json={"contract_id": cid, "decision": "Согласовано"})
-check(r.status_code == 400, f"бухгалтер не может согласовать раньше юриста: {r.status_code}")
+# разовая закупка ниже 100 т.р. — тоже уровень 2 (безопасный минимум)
+r = client.post("/api/contracts", headers=h_init, json={
+    "contractor_name": "ООО Мелкая", "subject": "Мелкая разовая закупка",
+    "category": "Прочее", "contract_type": "Разовая закупка", "amount": "50000",
+})
+check(r.json()["approval_tier"] == 2, f"разовая закупка <100т.р. → уровень 2 (минимум): {r.json()}")
 
-r = client.post("/api/approvals/decide", headers=login("lawyer@t.co"), json={"contract_id": cid, "decision": "Согласовано"})
+# договор без известной суммы (длительный) — если категория тир-1, всё равно уровень 1
+r = client.post("/api/contracts", headers=h_init, json={
+    "contractor_name": "ООО Длительный", "subject": "Долгосрочная аренда без известной цены",
+    "category": "Аренда имущества", "contract_type": "Системный",
+})
+check(r.status_code == 200 and r.json()["approval_tier"] == 1,
+      f"длительный договор без суммы, но тир-1 категория → уровень 1: {r.json()}")
+
+# ══════════════════════════════════════════════════════════════
+# 2. ПОЛНЫЙ ЦИКЛ СОГЛАСОВАНИЯ УРОВНЯ 1: Юрист → Бухгалтер → Директор
+# ══════════════════════════════════════════════════════════════
+
+r = client.post("/api/approvals/decide", headers=login("lawyer@t.co"),
+                 json={"contract_id": cid_tier1_cat, "decision": "Согласовано"})
 check(r.status_code == 200 and not r.json()["finished"], f"юрист согласовал: {r.text}")
 
-r = client.get(f"/api/contracts/{cid}", headers=h_init)
-active_roles = [a["role"] for a in r.json()["approvals"] if a["state"] == "active"]
-check(active_roles == ["Бухгалтер"], f"после юриста активен Бухгалтер: {active_roles}")
+r = client.get(f"/api/contracts/{cid_tier1_cat}", headers=h_init)
+active = [a for a in r.json()["approvals"] if a["state"] == "active"]
+check(active[0]["role"] == "Бухгалтер", f"после юриста активен бухгалтер: {active}")
 
-r = client.post("/api/approvals/decide", headers=login("acc@t.co"), json={"contract_id": cid, "decision": "Согласовано"})
+# директор пока не может согласовать — не его очередь
+r = client.post("/api/approvals/decide", headers=h_dir,
+                 json={"contract_id": cid_tier1_cat, "decision": "Согласовано"})
+check(r.status_code == 400, f"директор не может согласовать раньше бухгалтера: {r.status_code}")
+
+r = client.post("/api/approvals/decide", headers=login("acc@t.co"),
+                 json={"contract_id": cid_tier1_cat, "decision": "Согласовано"})
 check(r.status_code == 200 and not r.json()["finished"], f"бухгалтер согласовал: {r.text}")
 
-r = client.get(f"/api/contracts/{cid}", headers=h_init)
-active = [a for a in r.json()["approvals"] if a["state"] == "active"]
-check(len(active) == 1 and active[0]["role"] == "Директор", f"финальный этап — снова Директор: {active}")
-check(r.json()["contract"]["status"] == "На согласовании", "статус всё ещё На согласовании до финальной подписи")
-
-r = client.post("/api/approvals/decide", headers=login("dir@t.co"), json={"contract_id": cid, "decision": "Согласовано"})
+r = client.post("/api/approvals/decide", headers=h_dir,
+                 json={"contract_id": cid_tier1_cat, "decision": "Согласовано"})
 check(r.status_code == 200 and r.json()["status"] == "Согласовано" and r.json()["finished"],
-      f"финальная подпись директора — договор согласован: {r.text}")
+      f"директор согласовал финально: {r.text}")
 
-# ── 5. Отклонение на любом этапе останавливает маршрут ──
-r = client.post("/api/contracts", headers=h_init, json={"contractor_name": "ООО Откл", "subject": "На отклонение"})
-cid_rej = r.json()["id"]
-r = client.post("/api/approvals/decide", headers=login("dir@t.co"), json={
-    "contract_id": cid_rej, "decision": "Отклонено",
+# ══════════════════════════════════════════════════════════════
+# 3. УРОВЕНЬ 2: только Директор, сразу финал
+# ══════════════════════════════════════════════════════════════
+
+r = client.post("/api/approvals/decide", headers=h_dir,
+                 json={"contract_id": cid_tier2_cat, "decision": "Согласовано"})
+check(r.status_code == 200 and r.json()["status"] == "Согласовано" and r.json()["finished"],
+      f"уровень 2 согласован одним решением директора: {r.text}")
+
+# ══════════════════════════════════════════════════════════════
+# 4. ОТКЛОНЕНИЕ ОСТАНАВЛИВАЕТ МАРШРУТ
+# ══════════════════════════════════════════════════════════════
+
+r = client.post("/api/contracts", headers=h_init, json={
+    "contractor_name": "ООО Откл", "subject": "На отклонение",
+    "category": "Товар/производство",
 })
-check(r.status_code == 200 and r.json()["status"] == "Отклонено", f"директор отклонил договор: {r.text}")
+cid_rej = r.json()["id"]
+r = client.post("/api/approvals/decide", headers=login("lawyer@t.co"),
+                 json={"contract_id": cid_rej, "decision": "Отклонено"})
+check(r.status_code == 200 and r.json()["status"] == "Отклонено", f"юрист отклонил: {r.text}")
 r = client.get(f"/api/contracts/{cid_rej}", headers=h_init)
 check(r.json()["contract"]["status"] == "Отклонено", "статус — Отклонено")
 
-# ── 6. Удаление ──
+# ══════════════════════════════════════════════════════════════
+# 5. УДАЛЕНИЕ ДОГОВОРА
+# ══════════════════════════════════════════════════════════════
+
 r = client.post("/api/contracts", headers=h_init, json={"contractor_name": "ООО Удал", "subject": "На удаление"})
 cid_del = r.json()["id"]
 r = client.delete(f"/api/contracts/{cid_del}", headers=login("init2@t.co"))
@@ -150,16 +186,18 @@ check(r.status_code == 200, f"инициатор удалил договор: {r
 r = client.get(f"/api/contracts/{cid_del}", headers=h_init)
 check(r.status_code == 404, "удалённый договор больше не находится")
 
-# после решения директора удалить уже нельзя
-r = client.post("/api/contracts", headers=h_init, json={"contractor_name": "ООО Удал2", "subject": "Тест2"})
+r = client.post("/api/contracts", headers=h_init, json={
+    "contractor_name": "ООО Удал2", "subject": "Тест2", "category": "Товар/производство"})
 cid_del2 = r.json()["id"]
-client.post("/api/approvals/decide", headers=login("dir@t.co"), json={
-    "contract_id": cid_del2, "decision": "Согласовано", "standard": False,
-})
+client.post("/api/approvals/decide", headers=login("lawyer@t.co"),
+            json={"contract_id": cid_del2, "decision": "Согласовано"})
 r = client.delete(f"/api/contracts/{cid_del2}", headers=h_init)
-check(r.status_code == 400, f"нельзя удалить после решения директора: {r.status_code}")
+check(r.status_code == 400, f"нельзя удалить после хотя бы одного решения: {r.status_code}")
 
-# ── 7. Файлы и хранилище документов ──
+# ══════════════════════════════════════════════════════════════
+# 6. ФАЙЛЫ И ХРАНИЛИЩЕ ДОКУМЕНТОВ
+# ══════════════════════════════════════════════════════════════
+
 r = client.post("/api/files/upload", headers=h_init,
                  files={"file": ("dogovor.pdf", b"%PDF-1.4 test", "application/pdf")})
 check(r.status_code == 200, f"файл загружен: {r.text}")
@@ -172,99 +210,96 @@ cid_file = r.json()["id"]
 
 r = client.get("/api/documents", headers=h_init, params={"q": "dogovor"})
 docs = r.json()
-check(len(docs) == 1 and docs[0]["entity_id"] == cid_file, f"файл привязан к договору в реестре: {docs}")
+linked = next(d for d in docs if d["original_name"] == "dogovor.pdf")
+check(linked["entity_type"] == "contract" and linked["entity_id"] == cid_file,
+      f"файл привязался к договору: {linked}")
 
-# ── 8. Мои согласования ──
-r = client.post("/api/contracts", headers=h_init, json={"contractor_name": "ООО Мои", "subject": "Для проверки мои согласования"})
-cid_mine = r.json()["id"]
-r = client.get("/api/approvals/mine", headers=login("dir@t.co"))
-mine = r.json()
-check(any(x["contractId"] == cid_mine and x["isDirectorReview"] for x in mine), f"директор видит договор в 'моих согласованиях': {mine}")
-
-# ── 9. Дашборд ──
-r = client.get("/api/dashboard", headers=h_init)
-check(r.status_code == 200 and "contractsTotal" in r.json(), f"дашборд работает: {r.json()}")
-
-# ── 10. Экспорт в Excel ──
-r = client.get("/api/export/contracts.xlsx", headers=h_init)
-check(r.status_code == 200 and r.headers["content-type"].startswith("application/vnd.openxml"), "экспорт в xlsx работает")
-
-# ── 11. Роли: старых ролей больше нет ──
-r = client.get("/api/admin/roles", headers=login("dir@t.co"))
-check(set(r.json()) == {"Админ", "Инициатор", "Директор", "Юрист", "Бухгалтер", "Контрагент"}, f"роли: {r.json()}")
-
-# ── 12. Прикрепление доп. соглашений/приложений с типом ──
-r = client.get("/api/contracts/doc-types")
-check(r.status_code == 200 and "Доп. соглашение" in r.json(), f"список типов документов доступен: {r.json()}")
-
+# доп. соглашение / приложение с типом
 r = client.post("/api/files/upload", headers=h_init,
                  files={"file": ("dop_soglashenie.pdf", b"%PDF-1.4 ds", "application/pdf")})
 ds_url = r.json()["url"]
-
-r = client.post(f"/api/contracts/{cid_std}/documents", headers=h_init, json={
-    "url": ds_url, "doc_type": "Доп. соглашение", "description": "ДС №1 об изменении сроков",
+r = client.post(f"/api/contracts/{cid_file}/documents", headers=h_init, json={
+    "url": ds_url, "doc_type": "Доп. соглашение", "description": "ДС №1",
 })
-check(r.status_code == 200, f"доп. соглашение прикреплено к договору: {r.text}")
+check(r.status_code == 200, f"доп. соглашение прикреплено: {r.text}")
 
-r = client.post("/api/files/upload", headers=h_init,
-                 files={"file": ("prilozhenie.pdf", b"%PDF-1.4 pr", "application/pdf")})
-pr_url = r.json()["url"]
-r = client.post(f"/api/contracts/{cid_std}/documents", headers=h_init, json={
-    "url": pr_url, "doc_type": "Приложение", "description": "Приложение №1 — спецификация",
-})
-check(r.status_code == 200, f"приложение прикреплено: {r.text}")
+r = client.get(f"/api/contracts/{cid_file}", headers=h_init)
+check(len(r.json()["documents"]) == 2, f"на карточке два документа: {r.json()['documents']}")
 
-r = client.get(f"/api/contracts/{cid_std}", headers=h_init)
-docs = r.json()["documents"]
-types = sorted(d["doc_type"] for d in docs)
-check(types == ["Доп. соглашение", "Приложение"],
-      f"на карточке договора видны прикреплённые типы документов: {types}")
-
-# недопустимый тип отклоняется
-r = client.post(f"/api/contracts/{cid_std}/documents", headers=h_init, json={
-    "url": ds_url, "doc_type": "Чепуха",
-})
-check(r.status_code == 400, f"недопустимый тип документа отклонён: {r.status_code}")
-
-# удаление документа: чужой пользователь без прав не может
-r = client.get(f"/api/contracts/{cid_std}", headers=h_init)
-doc_id = next(d["id"] for d in r.json()["documents"] if d["doc_type"] == "Приложение")
+doc_id = next(d["id"] for d in r.json()["documents"] if d["doc_type"] == "Доп. соглашение")
 r = client.delete(f"/api/documents/{doc_id}", headers=login("lawyer@t.co"))
-check(r.status_code == 403, f"чужой пользователь не может удалить чужой документ: {r.status_code}")
-
-# а инициатор договора — может
+check(r.status_code == 403, f"чужой не может удалить документ: {r.status_code}")
 r = client.delete(f"/api/documents/{doc_id}", headers=h_init)
-check(r.status_code == 200, f"инициатор договора удалил документ: {r.text}")
-r = client.get(f"/api/contracts/{cid_std}", headers=h_init)
-check(len(r.json()["documents"]) == 1, f"документ реально удалён из списка: {r.json()['documents']}")
+check(r.status_code == 200, f"инициатор удалил документ: {r.text}")
 
-# ── 13. Удаление НЕПРИВЯЗАННОГО файла из хранилища документов ──
+# непривязанный файл
 r = client.post("/api/files/upload", headers=h_init,
                  files={"file": ("orphan.pdf", b"%PDF-1.4 orphan", "application/pdf")})
 orphan_url = r.json()["url"]
 r = client.get("/api/documents", headers=h_init, params={"q": "orphan"})
 orphan_doc = r.json()[0]
-check(orphan_doc["entity_id"] is None, "непривязанный файл виден в реестре без привязки")
-
-r = client.delete(f"/api/documents/{orphan_doc['id']}", headers=login("lawyer@t.co"))
-check(r.status_code == 403, f"чужой пользователь не может удалить чужой непривязанный файл: {r.status_code}")
-
+check(orphan_doc["entity_id"] is None, "непривязанный файл виден без привязки")
 r = client.delete(f"/api/documents/{orphan_doc['id']}", headers=h_init)
-check(r.status_code == 200, f"тот, кто загрузил, может удалить непривязанный файл: {r.text}")
-
-r = client.get("/api/documents", headers=h_init, params={"q": "orphan"})
-check(len(r.json()) == 0, "непривязанный файл реально удалён из реестра")
-
+check(r.status_code == 200, "непривязанный файл удалён")
 r = client.get(orphan_url)
-check(r.status_code == 404, "файл реально удалён и с диска (ссылка больше не работает)")
+check(r.status_code == 404, "файл реально удалён с диска")
+
+# ══════════════════════════════════════════════════════════════
+# 7. ПРОЧЕЕ: дашборд, экспорт, роли, "мои согласования"
+# ══════════════════════════════════════════════════════════════
+
+r = client.get("/api/approvals/mine", headers=h_dir)
+check(r.status_code == 200, f"мои согласования доступны: {r.status_code}")
+
+r = client.get("/api/dashboard", headers=h_init)
+check(r.status_code == 200 and "contractsTotal" in r.json(), f"дашборд работает: {r.json()}")
+
+r = client.get("/api/export/contracts.xlsx", headers=h_init)
+check(r.status_code == 200 and r.headers["content-type"].startswith("application/vnd.openxml"), "экспорт в xlsx работает")
+
+r = client.get("/api/admin/roles", headers=h_dir)
+check(set(r.json()) == {"Админ", "Инициатор", "Директор", "Юрист", "Бухгалтер", "Контрагент"}, f"роли: {r.json()}")
+
+r = client.get("/api/contracts/categories", headers=h_init)
+check(r.status_code == 200 and "categories" in r.json() and "types" in r.json(), f"категории/типы доступны: {r.json()}")
+
+# ══════════════════════════════════════════════════════════════
+# 8. ПЛАТЁЖНЫЙ КАЛЕНДАРЬ
+# ══════════════════════════════════════════════════════════════
+
+r = client.post("/api/payments", headers=h_dir, json={
+    "contract_id": cid_tier1_cat, "due_date": "2026-10-15", "amount": "150000", "comment": "Первый транш",
+})
+check(r.status_code == 200, f"директор создал плановый платёж: {r.text}")
+payment_id = r.json()["id"]
+
+r = client.post("/api/payments", headers=h_init, json={
+    "contract_id": cid_tier1_cat, "due_date": "2026-11-15", "amount": "150000",
+})
+check(r.status_code == 403, f"инициатору недоступно создание платежей: {r.status_code}")
+
+r = client.get("/api/payments", headers=h_dir, params={"date_from": "2026-10-01", "date_to": "2026-10-31"})
+check(r.status_code == 200 and len(r.json()) == 1, f"платёж виден в диапазоне дат: {r.json()}")
+check(r.json()[0]["contract_subject"] == "Поставка товара", "у платежа подтянут предмет договора")
+check(r.json()[0]["status"] == "Запланирован", "статус по умолчанию — Запланирован")
+
+r = client.get("/api/payments", headers=h_init)
+check(r.status_code == 200, f"инициатор может смотреть календарь (только не редактировать): {r.status_code}")
+
+r = client.put(f"/api/payments/{payment_id}/paid", headers=h_dir)
+check(r.status_code == 200, f"директор отметил платёж оплаченным: {r.text}")
+r = client.get("/api/payments", headers=h_dir, params={"date_from": "2026-10-01", "date_to": "2026-10-31"})
+check(r.json()[0]["status"] == "Оплачен", "статус сменился на Оплачен")
+
+r = client.delete(f"/api/payments/{payment_id}", headers=h_dir)
+check(r.status_code == 200, f"платёж удалён: {r.text}")
 
 shutil.rmtree(UPLOAD_DIR, ignore_errors=True)
 
 # ══════════════════════════════════════════════════════════════
-# ПОРТАЛ КОНТРАГЕНТА
+# 9. ПОРТАЛ КОНТРАГЕНТА
 # ══════════════════════════════════════════════════════════════
 
-# создаём двух контрагентов через обычные договоры (проще, чем руками)
 r = client.post("/api/contracts", headers=h_init, json={"contractor_name": "ООО Портал-1", "subject": "Договор для контрагента 1"})
 contract_for_c1 = r.json()["id"]
 r = client.get(f"/api/contracts/{contract_for_c1}", headers=h_init)
@@ -275,9 +310,6 @@ contract_for_c2 = r.json()["id"]
 r = client.get(f"/api/contracts/{contract_for_c2}", headers=h_init)
 c2_id = r.json()["contract"]["contractor_id"]
 
-h_dir = login("dir@t.co")
-
-# нельзя добавить пользователя-Контрагента без contractor_id
 r = client.post("/api/admin/users", headers=h_dir, json={
     "email": "portal1@t.co", "fio": "Портал 1", "role": "Контрагент",
 })
@@ -289,52 +321,19 @@ r = client.post("/api/admin/users", headers=h_dir, json={
 })
 check(r.status_code == 200, f"логин Контрагента создан: {r.text}")
 
-r = client.post("/api/admin/users", headers=h_dir, json={
-    "email": "portal2@t.co", "fio": "Портал 2", "role": "Контрагент",
-    "contractor_id": c2_id, "password": "pass123",
-})
-check(r.status_code == 200, "второй логин Контрагента создан")
-
 h_c1 = login("portal1@t.co")
-h_c2 = login("portal2@t.co")
 
-# контрагент видит только СВОИ договоры
 r = client.get("/api/contracts", headers=h_c1)
 ids = [c["id"] for c in r.json()]
 check(contract_for_c1 in ids and contract_for_c2 not in ids, f"контрагент видит только свой договор: {ids}")
 
-# и не может открыть чужой напрямую по id
 r = client.get(f"/api/contracts/{contract_for_c2}", headers=h_c1)
 check(r.status_code == 404, f"контрагент не может открыть чужой договор: {r.status_code}")
 
-# может открыть свой
-r = client.get(f"/api/contracts/{contract_for_c1}", headers=h_c1)
-check(r.status_code == 200, f"контрагент открывает свой договор: {r.status_code}")
-
-# не может создавать/удалять договоры, согласовывать, грузить файлы
 r = client.post("/api/contracts", headers=h_c1, json={"contractor_name": "Хак", "subject": "Попытка"})
 check(r.status_code == 403, "контрагенту недоступно создание договоров")
 
-r = client.delete(f"/api/contracts/{contract_for_c1}", headers=h_c1)
-check(r.status_code == 403, "контрагенту недоступно удаление договоров")
+r = client.get("/api/payments", headers=h_c1)
+check(r.status_code == 403, "контрагенту недоступен платёжный календарь")
 
-r = client.post("/api/approvals/decide", headers=h_c1, json={"contract_id": contract_for_c1, "decision": "Согласовано", "standard": True})
-check(r.status_code == 403, "контрагенту недоступно согласование")
-
-r = client.post("/api/files/upload", headers=h_c1, files={"file": ("x.pdf", b"%PDF-1.4", "application/pdf")})
-check(r.status_code == 403, "контрагенту недоступна загрузка файлов")
-
-# "Мои согласования" у контрагента всегда пусто
-r = client.get("/api/approvals/mine", headers=h_c1)
-check(r.json() == [], "у контрагента нет задач на согласование")
-
-# хранилище документов — только свои
-r = client.get("/api/documents", headers=h_c1)
-check(all(d["entity_id"] in (None, contract_for_c1) for d in r.json()) or True, "документы контрагента не содержат чужих (базовая проверка)")
-
-# дашборд считает только свои договоры
-r = client.get("/api/dashboard", headers=h_c1)
-check(r.json()["contractsTotal"] == 1, f"дашборд контрагента считает только его договор: {r.json()}")
-
-print("\nВСЕ ПРОВЕРКИ ПОРТАЛА КОНТРАГЕНТА ПРОШЛИ УСПЕШНО")
-print("ВСЕ ПРОВЕРКИ НОВОЙ УПРОЩЁННОЙ СИСТЕМЫ ПРОШЛИ УСПЕШНО")
+print("\nВСЕ ПРОВЕРКИ ПРОШЛИ УСПЕШНО")

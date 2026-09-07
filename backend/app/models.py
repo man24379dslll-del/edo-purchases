@@ -54,8 +54,16 @@ class Contract(Base):
     subject = Column(Text, nullable=False)
     contract_number = Column(String)
     price_per_unit = Column(Numeric(16, 2), default=0)
+    # Сумма договора — может быть NULL для длительных договоров, где итоговая
+    # цена заранее не известна (см. app/services/workflow.determine_tier).
+    amount = Column(Numeric(16, 2))
+    # "Товар/производство" | "Аренда имущества" | "Специализированные услуги и схемы"
+    # | "Прочие услуги" | "Ремонтные работы" | "Прочее"
+    category = Column(String, nullable=False, default="Прочее")
+    # "Системный" | "Разовая закупка" — влияет на маршрут вместе с category/amount.
+    contract_type = Column(String, nullable=False, default="Системный")
     status = Column(String, nullable=False, default="На согласовании")
-    is_standard = Column(Boolean)  # NULL пока Директор не решил; True/False после его решения на первом этапе
+    approval_tier = Column(Integer)  # 1 или 2 — вычисляется при создании, см. determine_tier()
     valid_until = Column(Date)
     comment = Column(Text)
     file_url = Column(String)
@@ -63,11 +71,10 @@ class Contract(Base):
 
 class Approval(Base):
     """
-    Этапы согласования договора. Цепочка динамическая (не фиксированная заранее):
-    stage 0 — Директор (решает: "Стандартный" → финал, либо отправляет дальше)
-    stage 1 — Юрист (создаётся только если Директор выбрал "не стандартный")
-    stage 2 — Бухгалтер (создаётся после Юриста)
-    stage 3 — Директор, финальная подпись (создаётся после Бухгалтера)
+    Этапы согласования договора. Маршрут определяется автоматически при
+    создании договора по категории/типу/сумме (см. workflow.determine_tier):
+      Уровень 1: Юрист → Бухгалтер → Директор (по очереди, все трое)
+      Уровень 2: только Директор
     """
     __tablename__ = "approvals"
     approval_id = Column(String, primary_key=True)
@@ -120,3 +127,17 @@ class Document(Base):
     entity_id = Column(String)
     entity_subject = Column(String)
     doc_type = Column(String)  # "Договор" | "Доп. соглашение" | "Приложение" | "Скан подписанного" | "Прочее"
+
+
+class PaymentScheduleItem(Base):
+    """Платёжный календарь: плановые/фактические платежи по договору с датой."""
+    __tablename__ = "payment_schedule"
+    id = Column(String, primary_key=True)
+    contract_id = Column(String, ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False)
+    due_date = Column(Date, nullable=False)
+    amount = Column(Numeric(16, 2), nullable=False)
+    status = Column(String, nullable=False, default="Запланирован")  # "Запланирован" | "Оплачен"
+    comment = Column(Text)
+    created_by = Column(String, ForeignKey("users.email"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    paid_at = Column(DateTime(timezone=True))

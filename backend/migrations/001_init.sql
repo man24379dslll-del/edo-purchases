@@ -58,8 +58,11 @@ create table contracts (
   subject           text not null,
   contract_number   text,
   price_per_unit    numeric(16,2) default 0,
+  amount            numeric(16,2),  -- сумма договора; NULL допустим для длительных договоров без известной цены
+  category          text not null default 'Прочее',
+  contract_type     text not null default 'Системный',  -- 'Системный' | 'Разовая закупка'
+  approval_tier     int,  -- 1 или 2, вычисляется при создании (см. app/services/workflow.determine_tier)
   status            text not null default 'На согласовании',
-  is_standard       boolean,  -- NULL пока Директор не решил на первом этапе
   valid_until       date,
   comment           text,
   file_url          text
@@ -68,8 +71,9 @@ create index idx_contracts_status on contracts(status);
 create index idx_contracts_contractor on contracts(contractor_id);
 
 -- ─── СОГЛАСОВАНИЯ ───
--- Маршрут динамический: 0=Директор(рассмотрение) → [1=Юрист → 2=Бухгалтер → 3=Директор(финал)]
--- Второй блок создаётся только если на этапе 0 Директор выбрал "не стандартный".
+-- Маршрут строится ЦЕЛИКОМ сразу при создании договора, по уровню (approval_tier):
+--   уровень 1: Юрист → Бухгалтер → Директор
+--   уровень 2: только Директор
 create table approvals (
   approval_id    text primary key,
   contract_id    text not null references contracts(id) on delete cascade,
@@ -80,7 +84,7 @@ create table approvals (
   decision_date  timestamptz,
   comment        text,
   created_at     timestamptz not null default now(),
-  state          text not null default 'active'  -- active | done
+  state          text not null default 'active'  -- active | pending | done
 );
 create index idx_approvals_contract on approvals(contract_id);
 create index idx_approvals_role_state on approvals(approver_role, state);
@@ -122,6 +126,21 @@ create table documents (
 create index idx_documents_entity on documents(entity_type, entity_id);
 create index idx_documents_uploaded_by on documents(uploaded_by);
 create index idx_documents_uploaded_at on documents(uploaded_at desc);
+
+-- ─── ПЛАТЁЖНЫЙ КАЛЕНДАРЬ ───
+create table payment_schedule (
+  id          text primary key,
+  contract_id text not null references contracts(id) on delete cascade,
+  due_date    date not null,
+  amount      numeric(16,2) not null,
+  status      text not null default 'Запланирован',  -- 'Запланирован' | 'Оплачен'
+  comment     text,
+  created_by  text references users(email),
+  created_at  timestamptz not null default now(),
+  paid_at     timestamptz
+);
+create index idx_payment_schedule_due_date on payment_schedule(due_date);
+create index idx_payment_schedule_contract on payment_schedule(contract_id);
 
 -- ─── СИД: юрлица-примеры ───
 insert into legal_entities (id, name, inn, address) values
